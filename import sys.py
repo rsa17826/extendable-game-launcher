@@ -345,7 +345,7 @@ class VersionItemWidget(QWidget):
     self.update()  # repaint
 
   def paintEvent(self, event):
-    if not ((0 < self.progress < 100) or self.noKnownEndPoint):
+    if not ((0 <= self.progress <= 100) or self.noKnownEndPoint):
       super().paintEvent(event)
       return
 
@@ -508,9 +508,63 @@ class Launcher(QWidget):
       os.makedirs(dest_dir, exist_ok=True)
 
       out_file = os.path.join(dest_dir, asset["name"])
+      # Set widget to "Waiting" state immediately
+      widget = data["widget"]
+      widget.label.setText(f"Waiting to download {tag}...")
+      widget.setModeUnknownEnd()  # orange pulsing bar
 
+      # Add to queue
+      self.download_queue.append(
+        (item, asset["browser_download_url"], out_file, dest_dir)
+      )
+      self.process_download_queue()
       # pass dest_dir for extraction
-      self.download_online_version(item, url, out_file, dest_dir)
+      # self.download_online_version(item, url, out_file, dest_dir)
+
+  def process_download_queue(self):
+    # While we have room for more downloads and items in the queue
+    while (
+      len(self.active_downloads) < self.max_concurrent_dls and self.download_queue
+    ):
+      next_dl = self.download_queue.pop(0)
+      self.start_actual_download(*next_dl)
+
+  def start_actual_download(self, item, url, out_file, dest_dir):
+    data = item.data(Qt.UserRole)
+    tag = data["version"]
+    widget = data["widget"]
+
+    # Change state from 'Waiting' to 'Downloading'
+    widget.label.setText(f"Downloading {tag}...")
+    widget.setModeKnownEnd()  # blue bar
+
+    dl_thread = self.download_online_version(item, url, out_file, dest_dir)
+    self.active_downloads[tag] = dl_thread
+
+    dl_thread.progress.connect(widget.set_progress)
+
+    def on_finished(path):
+      # 1. Clean up tracking
+      if tag in self.active_downloads:
+        del self.active_downloads[tag]
+
+      # 2. Existing extraction logic
+      widget.set_progress(100)
+      widget.setModeUnknownEnd()
+      # ... (extract your zip/7z files as before) ...
+
+      # 3. Mark as local
+      widget.set_progress(101)
+      widget.set_label_color(LOCAL_COLOR)
+      widget.label.setText(f"Run version {tag}")
+      self.downloadingVersions.remove(tag)
+
+      # 4. Trigger the next download in queue
+      self.process_download_queue()
+
+    dl_thread.finished.connect(on_finished)
+    dl_thread.error.connect(lambda e: print(f"DL Error {tag}: {e}"))
+    dl_thread.start()
 
   def download_online_version(self, item, url, out_file, extract_dir):
     data = item.data(Qt.UserRole)
@@ -518,11 +572,12 @@ class Launcher(QWidget):
     data["path"] = extract_dir
     widget = data["widget"]
     dl_thread = AssetDownloadThread(url, out_file)
-    self.active_downloads.append(dl_thread)  # keep reference
 
     dl_thread.progress.connect(widget.set_progress)
 
     def on_finished(path):
+      widget.set_progress(100)
+      widget.setModeUnknownEnd()
       extracted = False
       # check extension and extract
       if path.endswith(".zip"):
@@ -556,13 +611,13 @@ class Launcher(QWidget):
         print(f"{data['version']} downloaded and extracted successfully.")
 
     dl_thread = AssetDownloadThread(url, out_file)
-    self.active_downloads.append(dl_thread)  # keep reference
 
     dl_thread.progress.connect(widget.set_progress)
 
     dl_thread.finished.connect(on_finished)
     dl_thread.error.connect(lambda e: print("DL error:", e))
     dl_thread.start()
+    return dl_thread
 
   def update_version_list(self, releases):
     self.version_list.setUpdatesEnabled(False)
@@ -700,8 +755,9 @@ class Launcher(QWidget):
 
   def __init__(self):
     super().__init__()
-
-    self.active_downloads = []
+    self.active_downloads = {}  # {version_tag: thread_object}
+    self.download_queue = []  # List of (item, url, out_file, extract_dir)
+    self.max_concurrent_dls = 3
     self.setWindowTitle(WINDOW_TITLE)
     self.setFixedSize(420, 600)
     self.setStyleSheet(f.read("./main.css"))
