@@ -28,7 +28,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtCore import Qt
 import os
 import zipfile
-import py7zr  # install with pip install py7zr
+import py7zr
 import re
 
 OFFLINE = False
@@ -36,6 +36,7 @@ SILENT = False
 ASSET_NAME = "windows.zip"
 GAME_FILE_NAME = "vex.pck"
 VERSIONS_DIR = "versions"
+GAME_LOG_LOCATION = ""
 WINDOW_TITLE = "vex++ launcher"
 MAIN_LOADING_COLOR = (0, 210, 255)
 UNKNOWN_TIME_LOADING_COLOR = (255, 108, 0)
@@ -371,8 +372,7 @@ class VersionItemWidget(QWidget):
     if self.noKnownEndPoint:
       self.progress = int(((time.time() - self.startTime) * self.animSpeed) % 100)
       QTimer.singleShot(0, self.update)
-    # Determine the width of one 'half' bar
-    # At 100% progress, each half is 50% of the total width
+
     if self.progressType == self.ProgressTypes.both:
       fill_end = w * self.progress / 100
       solid_rect = QRectF(0, 0, max(0, fill_end - gradSize), h)
@@ -787,12 +787,14 @@ class Launcher(QWidget):
       QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     temp.clicked.connect(a)
-    temp = QPushButton("open game logs folder")
-    btn_row1.addWidget(temp)
-    # def a():
-    #   path = os.path.abspath("./gameData")
-    #   QDesktopServices.openUrl(QUrl.fromLocalFile(path))
-    # temp.clicked.connect(a)
+
+    if GAME_LOG_LOCATION:
+      temp = QPushButton("open game logs folder")
+      btn_row1.addWidget(temp)
+      def a():
+        path = os.path.abspath(GAME_LOG_LOCATION)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+      temp.clicked.connect(a)
 
     main_layout.addLayout(btn_row1)
     btn_row2 = QHBoxLayout()
