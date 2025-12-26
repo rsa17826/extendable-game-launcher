@@ -1,6 +1,11 @@
 import sys
 import subprocess
 from misc import f
+import time
+import random
+import requests
+from enum import Enum
+import json
 from PySide6.QtWidgets import (
   QApplication,
   QWidget,
@@ -19,7 +24,7 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QProgressBar
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
-
+from PySide6.QtCore import QTimer
 from PySide6.QtCore import Qt
 import os
 import zipfile
@@ -32,6 +37,8 @@ ASSET_NAME = "windows.zip"
 GAME_FILE_NAME = "vex.pck"
 VERSIONS_DIR = "versions"
 WINDOW_TITLE = "vex++ launcher"
+MAIN_LOADING_COLOR = (0, 210, 255)
+UNKNOWN_TIME_LOADING_COLOR = (255, 108, 0)
 USE_HARD_LINKS = True
 USE_CENTRAL_GAME_DATA_FOLDER = True
 API_URL = "https://api.github.com/repos/rsa17826/vex-plus-plus/releases"
@@ -285,13 +292,8 @@ class ReleaseFetchThread(QThread):
       self.error.emit(str(e))
 
 
-import time
-import random
-import requests
-
 doing_something = False
 
-import json
 
 SETTINGS_FILE = "launcher_settings.json"
 
@@ -315,16 +317,8 @@ def load_settings() -> dict:
     return {}
 
 
-def launch_game():
-  # Example launch command
-  subprocess.Popen(["./mygame"])  # Change for Windows if needed
-
-
 def create_version_item_widget(version_text, color):
   return VersionItemWidget(version_text, color)
-
-
-from enum import Enum
 
 
 class VersionItemWidget(QWidget):
@@ -333,15 +327,13 @@ class VersionItemWidget(QWidget):
     both = 1
     rightToLeft = 2
 
-  def __init__(self, text, color):  # Added color argument
+  def __init__(self, text="", color=MISSING_COLOR):  # Added color argument
     super().__init__()
     self.text = text
     self.progress = 0
-    self.progressColor = (0, 210, 255)
-    self.progressColor = (255, 108, 0)
-    self.progressType = VersionItemWidget.ProgressTypes.leftToRight
+    self.progressColor = UNKNOWN_TIME_LOADING_COLOR
     self.progressType = VersionItemWidget.ProgressTypes.both
-    self.noKnownEndPoint = True
+    self.noKnownEndPoint = False
     self.startTime = 0
     self.animSpeed = 10
     self.setAttribute(Qt.WA_TranslucentBackground)
@@ -365,7 +357,7 @@ class VersionItemWidget(QWidget):
     self.update()  # repaint
 
   def paintEvent(self, event):
-    if not (0 < self.progress < 100):
+    if not ((0 < self.progress < 100) or self.noKnownEndPoint):
       super().paintEvent(event)
       return
 
@@ -378,6 +370,7 @@ class VersionItemWidget(QWidget):
     minGradAlpha = 50
     if self.noKnownEndPoint:
       self.progress = int(((time.time() - self.startTime) * self.animSpeed) % 100)
+      QTimer.singleShot(0, self.update)
     # Determine the width of one 'half' bar
     # At 100% progress, each half is 50% of the total width
     if self.progressType == self.ProgressTypes.both:
@@ -425,7 +418,7 @@ class VersionItemWidget(QWidget):
   def _draw_progress(self, painter, rect, alpha):
     if rect.width() <= 0:
       return
-    painter.fillRect(rect, QColor(self.progressColor + (alpha,)))
+    painter.fillRect(rect, QColor(*self.progressColor, alpha))
 
   def _draw_gradient(self, painter, rect, start_pt, end_pt, min_alpha):
     if rect.width() <= 0:
@@ -435,7 +428,7 @@ class VersionItemWidget(QWidget):
     for i in range(11):
       pos = i / 10.0
       alpha = int(min_alpha + (255 - min_alpha) * math.pow(pos, exponent))
-      grad.setColorAt(pos, QColor(self.progressColor + (alpha,)))
+      grad.setColorAt(pos, QColor(*self.progressColor, alpha))
     painter.fillRect(rect, grad)
 
 
@@ -776,7 +769,8 @@ class Launcher(QWidget):
     # Redirects
     sys.stdout = ConsoleRedirector(self.console_output)
     sys.stderr = ConsoleRedirector(self.console_output)
-
+    self.main_progress_bar = VersionItemWidget("aaas", MISSING_COLOR)
+    main_layout.addWidget(self.main_progress_bar)
     # --- Command input ---
     self.command_input = QLineEdit("")
     self.command_input.setPlaceholderText("game args go here")
@@ -813,7 +807,6 @@ class Launcher(QWidget):
       btn_row2.addWidget(temp)
       main_layout.addLayout(btn_row2)
 
-    # --- Masked field ---
     self.github_pat = QLineEdit()
     self.github_pat.setEchoMode(QLineEdit.Password)
     self.github_pat.setPlaceholderText("github pat (optional)")
@@ -840,8 +833,10 @@ class Launcher(QWidget):
 
     # ---- ONLINE FETCH (only if not offline) ----
     if not OFFLINE:
-      self.progress_dialog = ProgressDialog("Loading releases")
       self.release_thread = ReleaseFetchThread(pat=self.github_pat.text() or None)
+      self.main_progress_bar.text = "Loading Game Versions"
+      self.main_progress_bar.noKnownEndPoint = True
+      self.main_progress_bar.update()
       self.release_thread.progress.connect(self.on_release_progress)
       self.release_thread.finished.connect(self.on_release_finished)
       self.update_version_list([])
@@ -849,17 +844,20 @@ class Launcher(QWidget):
         lambda e: print("Release fetch error:", e)
       )
       self.release_thread.start()
-      self.progress_dialog.show()
+      self.main_progress_bar.show()
 
   def on_release_progress(self, page, total, releases):
-    percent = int(page / total * 100)
-    self.progress_dialog.bar.setValue(percent)
-    self.progress_dialog.text.setText(f"Loading releases... ({page}/{total})")
-    self.progress_dialog.percent.setText(f"{percent}% Done")
+    self.main_progress_bar.progressColor = MAIN_LOADING_COLOR
+    self.main_progress_bar.progressType = (
+      VersionItemWidget.ProgressTypes.leftToRight
+    )
+    self.main_progress_bar.noKnownEndPoint = False
+    self.main_progress_bar.set_progress((page / total) * 100)
     self.update_version_list(releases)
 
   def on_release_finished(self, releases):
-    self.progress_dialog.close()
+    self.main_progress_bar.text = ""
+    self.main_progress_bar.set_progress(101)
     self.update_version_list(releases)
 
 
