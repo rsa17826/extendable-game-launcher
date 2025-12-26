@@ -769,7 +769,7 @@ class Launcher(QWidget):
     # Redirects
     sys.stdout = ConsoleRedirector(self.console_output)
     sys.stderr = ConsoleRedirector(self.console_output)
-    self.main_progress_bar = VersionItemWidget("aaas", MISSING_COLOR)
+    self.main_progress_bar = VersionItemWidget("", MISSING_COLOR)
     main_layout.addWidget(self.main_progress_bar)
     # --- Command input ---
     self.command_input = QLineEdit("")
