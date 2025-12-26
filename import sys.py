@@ -196,18 +196,6 @@ class AssetDownloadThread(QThread):
       self.error.emit(str(e))
 
 
-def download_asset(self, asset_url, out_path):
-  self.progress = ProgressDialog()
-  self.progress.show()
-
-  self.dl_thread = AssetDownloadThread(asset_url, out_path)
-  self.dl_thread.progress.connect(self.progress.bar.setValue)
-  self.dl_thread.finished.connect(self.progress.close)
-  self.dl_thread.error.connect(lambda e: print("DL error:", e))
-
-  self.dl_thread.start()
-
-
 # ------------------- Progress Dialog -------------------
 class ProgressDialog(QDialog):
   def __init__(self, title="Loading releases"):
@@ -283,7 +271,7 @@ class ReleaseFetchThread(QThread):
         releases.extend(data)
 
         if final_size > 0:
-          self.progress.emit(page + 1, final_size)
+          self.progress.emit(page + 1, final_size, releases)
 
       self.finished.emit(releases)
 
@@ -459,7 +447,6 @@ class Launcher(QWidget):
       if data["version"] in self.downloadingVersions:
         return
       self.downloadingVersions.append(data["version"])
-      print(data)
       release = data.get("release")
       if not release:
         return
@@ -734,17 +721,19 @@ class Launcher(QWidget):
       )
       self.release_thread.progress.connect(self.on_release_progress)
       self.release_thread.finished.connect(self.on_release_finished)
+      self.update_version_list([])
       self.release_thread.error.connect(
         lambda e: print("Release fetch error:", e)
       )
       self.release_thread.start()
       self.progress_dialog.show()
 
-  def on_release_progress(self, page, total):
+  def on_release_progress(self, page, total, releases):
     percent = int(page / total * 100)
     self.progress_dialog.bar.setValue(percent)
     self.progress_dialog.text.setText(f"Loading releases... ({page}/{total})")
     self.progress_dialog.percent.setText(f"{percent}% Done")
+    self.update_version_list(releases)
 
   def on_release_finished(self, releases):
     self.progress_dialog.close()
