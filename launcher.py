@@ -1,6 +1,5 @@
 import sys
 import subprocess
-from misc import f
 import time
 import random
 import requests
@@ -31,6 +30,130 @@ import os
 import zipfile
 import py7zr
 import re
+from pathlib import Path
+
+class f:
+  @staticmethod
+  def read(
+    file,
+    default="",
+    asbinary=False,
+    buffering: int = -1,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+    closefd: bool = True,
+    opener=None,
+  ):
+    if Path(file).exists():
+      with open(
+        file,
+        "r" + ("b" if asbinary else ""),
+        buffering=buffering,
+        encoding=encoding,
+        errors=errors,
+        newline=newline,
+        closefd=closefd,
+        opener=opener,
+      ) as f:
+        text = f.read()
+      if text:
+        return text
+      return default
+    else:
+      with open(
+        file,
+        "w" + ("b" if asbinary else ""),
+        buffering=buffering,
+        encoding=encoding,
+        errors=errors,
+        newline=newline,
+        closefd=closefd,
+        opener=opener,
+      ) as f:
+        f.write(default)
+      return default
+
+  @staticmethod
+  def writeCsv(file, rows):
+    with open(file, "w", encoding="utf-8", newline="") as f:
+      w = csv.writer(f)
+      w.writerows(rows)
+    return rows
+
+  @staticmethod
+  def write(
+    file,
+    text,
+    asbinary=False,
+    buffering: int = -1,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+    closefd: bool = True,
+    opener=None,
+  ):
+    with open(
+      file,
+      "w" + ("b" if asbinary else ""),
+      buffering=buffering,
+      encoding=encoding,
+      errors=errors,
+      newline=newline,
+      closefd=closefd,
+      opener=opener,
+    ) as f:
+      f.write(text)
+    return text
+
+  @staticmethod
+  def append(
+    file,
+    text,
+    asbinary=False,
+    buffering: int = -1,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+    closefd: bool = True,
+    opener=None,
+  ):
+    with open(
+      file,
+      "a",
+      buffering=buffering,
+      encoding=encoding,
+      errors=errors,
+      newline=newline,
+      closefd=closefd,
+      opener=opener,
+    ) as f:
+      f.write(text)
+    return text
+
+  @staticmethod
+  def writeline(
+    file,
+    text,
+    buffering: int = -1,
+    encoding: str | None = None,
+    errors: str | None = None,
+    newline: str | None = None,
+    closefd: bool = True,
+    opener=None,
+  ):
+    with open(
+      file,
+      "a",
+      buffering=buffering,
+      encoding=encoding,
+      errors=errors,
+      newline=newline,
+      closefd=closefd,
+      opener=opener,
+    ) as f:
+      f.write("\n" + text)
+    return text
 
 OFFLINE = False
 SILENT = False

@@ -6,17 +6,22 @@ pkgs.mkShell {
     python3Packages.pyside6
     python3Packages.requests
     python3Packages.py7zr
-    # Qt6 dependencies for NixOS
+    
+    # System dependencies for Qt6
     qt6.qtbase
-    qt6.qtwayland # required if you use Wayland
+    qt6.qtwayland
     libGL
     xorg.libX11
+    xorg.libXcursor
+    xorg.libXcomposite
+    xorg.libXdamage
+    xorg.libXext
+    xorg.libXfixes
+    xorg.libXi
+    xorg.libXrender
+    xorg.libXtst
+    libxkbcommon
+    fontconfig
+    freetype
   ];
-
-  shellHook = ''
-    # Fix for Qt/PySide6 on NixOS
-    export QT_QPA_PLATFORM_PLUGIN_PATH="${pkgs.qt6.qtbase.bin}/lib/qt-6/plugins"
-    export LD_LIBRARY_PATH="${pkgs.libGL}/lib:${pkgs.xorg.libX11}/lib:$LD_LIBRARY_PATH"
-    echo "Launcher dev environment loaded!"
-  '';
 }
