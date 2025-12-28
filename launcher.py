@@ -72,13 +72,6 @@ class f:
       return default
 
   @staticmethod
-  def writeCsv(file, rows):
-    with open(file, "w", encoding="utf-8", newline="") as f:
-      w = csv.writer(f)
-      w.writerows(rows)
-    return rows
-
-  @staticmethod
   def write(
     file,
     text,
@@ -151,6 +144,7 @@ class f:
     ) as f:
       f.write("\n" + text)
     return text
+
 
 OFFLINE = False
 SILENT = False
