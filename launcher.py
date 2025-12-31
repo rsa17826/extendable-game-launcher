@@ -499,7 +499,9 @@ def run(config: Config):
         alpha = int(min_alpha + (255 - min_alpha) * math.pow(pos, exponent))
         grad.setColorAt(pos, QColor(*self.progressColor, alpha))
       painter.fillRect(rect, grad)
+
   from typing import Any
+
   class SettingsData:
     """A container for dot-notation access to settings."""
 
@@ -641,8 +643,12 @@ def run(config: Config):
       ):
         next_dl = self.download_queue.pop(0)
         self.start_actual_download(*next_dl)
+      print(self.downloadingVersions)
+      self.update_version_list()
+      QTimer.singleShot(0, lambda: QTimer.singleShot(0, self.update_version_list))
 
     def start_actual_download(self, item, url, out_file, dest_dir):
+      print(url)
       data = item.data(Qt.ItemDataRole.UserRole)
       tag = data["version"]
 
@@ -688,13 +694,9 @@ def run(config: Config):
         # 2. Finalize UI
         if extracted:
           print(f"Finished processing {tag}")
-          # Use a small delay before clearing the thread reference to prevent the "Destroyed" error
-          QTimer.singleShot(100, lambda: self.active_downloads.pop(tag, None))
-          # Trigger a refresh to show the new 'Local' status
+          self.active_downloads.pop(tag, None)
           assert isinstance(current_widget, VersionItemWidget)
-          current_widget.setModeKnownEnd()
-          current_widget.set_progress(101)
-          self.update_version_list()
+          self.process_download_queue()
         else:
           self.active_downloads.pop(tag, None)
 
@@ -709,7 +711,6 @@ def run(config: Config):
       dl_thread.start()
 
     def handle_download_progress(self, version_tag, percentage):
-      # O(1) Lookup - No Loop!
       item = self.active_item_refs.get(version_tag)
 
       if item:
@@ -771,21 +772,26 @@ def run(config: Config):
           self.active_item_refs[data["version"]] = item
           item = self.version_list.item(i)
           old_data = item.data(Qt.ItemDataRole.UserRole)
-          if (
-            old_data
-            and old_data.get("version") == data["version"]
-            and old_data.get("status") == data["status"]
-          ):
-            continue
+          # if (
+          #   old_data
+          #   and old_data.get("version") == data["version"]
+          #   and old_data.get("status") == data["status"]
+          # ):
+          #   continue
 
           widget = self.version_list.itemWidget(item)
+          assert isinstance(widget, VersionItemWidget)
           new_text = (
             f"Run version {data['version']}"
             if data["status"] == "Local"
             else f"Download version {data['version']}"
           )
           if data["version"] in self.downloadingVersions:
+            if not widget.noKnownEndPoint:
+              widget.setModeUnknownEnd()
             new_text = f"Downloading {data['version']}..."
+          else:
+            widget.set_progress(101)
           new_color = (
             LOCAL_COLOR
             if data["status"] == "Local"
@@ -795,15 +801,8 @@ def run(config: Config):
               else MISSING_COLOR
             )
           )
-          assert isinstance(widget, VersionItemWidget)
           widget.label.setText(new_text)
           widget.set_label_color(new_color)
-          if (
-            data["status"] == "Online"
-            and data["version"] not in self.downloadingVersions
-          ):
-            widget.setModeKnownEnd()
-            widget.set_progress(0)
           data["widget"] = widget
           item.setData(Qt.ItemDataRole.UserRole, data)
       except Exception as e:
@@ -858,6 +857,7 @@ def run(config: Config):
         # The key returns: (IsLastRan, IsLocal, IsNumeric, Value/String)
         return (
           is_last_ran,
+          (1 if (version in self.downloadingVersions) else 0),
           is_local,
           version_is_numeric,
           numeric_value if version_is_numeric else version,
@@ -1050,18 +1050,33 @@ def run(config: Config):
       )
 
       global_layout.addLayout(
-        self.newRow("Max pages to fetch on load:", self.newSpinBox(0, 100, 1, "max_pages_on_load"))
+        self.newRow(
+          "Max pages to fetch on load:",
+          self.newSpinBox(0, 100, 1, "max_pages_on_load"),
+        )
       )
 
       # Fetch Actions Row
       fetch_btn_row = QHBoxLayout()
       assert isinstance(self.settings.max_pages_on_load, int)
-      fetch_btn_row.addWidget(self.newButton("Fetch Recent Updates", lambda: self.start_fetch(max_pages=self.settings.max_pages_on_load)))
-      fetch_btn_row.addWidget(self.newButton("Sync Full History", self.start_full_fetch))
+      fetch_btn_row.addWidget(
+        self.newButton(
+          "Fetch Recent Updates",
+          lambda: self.start_fetch(max_pages=self.settings.max_pages_on_load),
+        )
+      )
+      fetch_btn_row.addWidget(
+        self.newButton("Sync Full History", self.start_full_fetch)
+      )
       global_layout.addLayout(fetch_btn_row)
 
       global_layout.addLayout(
-        self.newRow("GitHub PAT (Optional):", self.newLineEdit("GitHub PAT (Optional)", 'github_pat', password=True))
+        self.newRow(
+          "GitHub PAT (Optional):",
+          self.newLineEdit(
+            "GitHub PAT (Optional)", "github_pat", password=True
+          ),
+        )
       )
 
       global_box.setLayout(global_layout)
