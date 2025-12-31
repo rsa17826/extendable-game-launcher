@@ -132,57 +132,6 @@ def run(config: Config):
         f.write(text)
       return text
 
-    @staticmethod
-    def append(
-      file,
-      text,
-      asbinary=False,
-      buffering: int = -1,
-      encoding: str | None = None,
-      errors: str | None = None,
-      newline: str | None = None,
-      closefd: bool = True,
-      opener=None,
-    ):
-      with open(
-        file,
-        "a",
-        buffering=buffering,
-        encoding=encoding,
-        errors=errors,
-        newline=newline,
-        closefd=closefd,
-        opener=opener,
-      ) as f:
-        f.write(text)
-      return text
-
-    @staticmethod
-    def writeline(
-      file,
-      text,
-      buffering: int = -1,
-      encoding: str | None = None,
-      errors: str | None = None,
-      newline: str | None = None,
-      closefd: bool = True,
-      opener=None,
-    ):
-      with open(
-        file,
-        "a",
-        buffering=buffering,
-        encoding=encoding,
-        errors=errors,
-        newline=newline,
-        closefd=closefd,
-        opener=opener,
-      ) as f:
-        f.write("\n" + text)
-      return text
-
-  SETTINGS_FILE = "launcher_settings.json"
-
   OFFLINE = "offline" in sys.argv
 
   MAIN_LOADING_COLOR = (0, 210, 255)
@@ -550,6 +499,13 @@ def run(config: Config):
         alpha = int(min_alpha + (255 - min_alpha) * math.pow(pos, exponent))
         grad.setColorAt(pos, QColor(*self.progressColor, alpha))
       painter.fillRect(rect, grad)
+  from typing import Any
+  class SettingsData:
+    """A container for dot-notation access to settings."""
+
+    def __getattr__(self, name) -> Any:
+      # Fallback to None if a setting doesn't exist to prevent crashes
+      return None
 
   class Launcher(QWidget):
     def save_user_settings(self):
@@ -678,9 +634,10 @@ def run(config: Config):
 
     def process_download_queue(self):
       # While we have room for more downloads and items in the queue
+      assert isinstance(self.settings.max_concurrent_dls, int)
       while self.download_queue and (
-        len(self.active_downloads) < self.max_dl_spinbox.value()
-        or self.max_dl_spinbox.value() == 0
+        len(self.active_downloads) < self.settings.max_concurrent_dls
+        or self.settings.max_concurrent_dls == 0
       ):
         next_dl = self.download_queue.pop(0)
         self.start_actual_download(*next_dl)
@@ -931,6 +888,7 @@ def run(config: Config):
 
     def __init__(self):
       super().__init__()
+      self.settings = SettingsData()
       self.active_item_refs = {}  # Key: version_tag, Value: QListWidgetItem
       self.active_downloads = {}  # {version_tag: thread_object}
       self.download_queue = []  # List of (item, url, out_file, extract_dir)
@@ -987,8 +945,8 @@ def run(config: Config):
         f.read(os.path.join(GAME_ID, "launcherData/cache/releases.json"), "[]")
       )
       self.update_version_list()
-      if not OFFLINE and self.fetch_on_load.isChecked():
-        self.start_fetch(max_pages=self.max_pages_spin.value())
+      if not OFFLINE and self.settings.fetch_on_load:
+        self.start_fetch(max_pages=self.settings.max_pages_on_load)
         self.release_thread.error.connect(
           lambda e: print("Release fetch error:", e)
         )
@@ -1016,14 +974,19 @@ def run(config: Config):
         return
 
       self.release_thread = ReleaseFetchThread(
-        pat=self.github_pat.text() or None, max_pages=max_pages
+        pat=self.settings.github_pat or None, max_pages=max_pages
       )
       if max_pages:
         self.main_progress_bar.setModeKnownEnd()
         self.main_progress_bar.set_progress((0 / max_pages) * 100)
       else:
         self.main_progress_bar.setModeUnknownEnd()
-      self.main_progress_bar.label.setText(f"Fetching {max_pages} page(s)...")
+      if max_pages:
+        self.main_progress_bar.label.setText(
+          f"Fetching {max_pages} page{'s' if max_pages==1 else ''}..."
+        )
+      else:
+        self.main_progress_bar.label.setText(f"Fetching page count...")
       self.release_thread.progress.connect(self.on_release_progress)
       self.release_thread.finished.connect(self.on_release_finished)
       self.release_thread.start()
@@ -1071,72 +1034,35 @@ def run(config: Config):
       global_box = QGroupBox("Global Settings (All Games)")
       global_layout = QVBoxLayout()
 
-      # Max Downloads
-      max_dl_row = QHBoxLayout()
-      max_dl_row.addWidget(QLabel("Max Concurrent Downloads:"))
-      self.max_dl_spinbox = QSpinBox()
-      self.max_dl_spinbox.setRange(0, 10)
-      self.max_dl_spinbox.setValue(3)
-      self.max_dl_spinbox.setFixedWidth(60)
-      self.max_dl_spinbox.valueChanged.connect(self.process_download_queue)
-      max_dl_row.addWidget(self.max_dl_spinbox)
-      max_dl_row.addStretch()
-      global_layout.addLayout(max_dl_row)
-      self.widgets_to_save["max_concurrent_dls"] = self.max_dl_spinbox
+      # Max Downloads (Using new helper)
+      global_layout.addLayout(
+        self.newRow(
+          "Max Concurrent Downloads:",
+          self.newSpinBox(0, 10, 3, "max_concurrent_dls"),
+        )
+      )
 
-      # Fetch on Load Bool
-      self.fetch_on_load = QCheckBox("Fetch releases on launcher start")
-      self.fetch_on_load.setChecked(True)
-      global_layout.addWidget(self.fetch_on_load)
-      self.widgets_to_save["fetch_on_load"] = self.fetch_on_load
+      # Fetch on Load
+      global_layout.addWidget(
+        self.newCheckbox(
+          "Fetch releases on launcher start", True, "fetch_on_load"
+        )
+      )
 
-      # Max Pages Int
-      page_row = QHBoxLayout()
-      page_row.addWidget(QLabel("Max pages to fetch on load:"))
-      self.max_pages_spin = QSpinBox()
-      self.max_pages_spin.setRange(0, 100)
-      self.max_pages_spin.setValue(1)
-      page_row.addWidget(self.max_pages_spin)
-      page_row.addStretch()
-      global_layout.addLayout(page_row)
-      self.widgets_to_save["max_pages_on_load"] = self.max_pages_spin
+      global_layout.addLayout(
+        self.newRow("Max pages to fetch on load:", self.newSpinBox(0, 100, 1, "max_pages_on_load"))
+      )
 
-      # --- Fetch Actions Row ---
+      # Fetch Actions Row
       fetch_btn_row = QHBoxLayout()
-
-      # Button 1: Fetch based on the SpinBox limit
-      self.btn_fetch_limit = QPushButton("Fetch Recent Updates")
-      self.btn_fetch_limit.setToolTip(
-        "Fetch the number of pages specified in the limit above"
-      )
-      self.btn_fetch_limit.clicked.connect(
-        lambda: self.start_fetch(max_pages=self.max_pages_spin.value())
-      )
-      fetch_btn_row.addWidget(self.btn_fetch_limit)
-
-      # Button 2: Fetch everything
-      self.btn_fetch_all = QPushButton("Sync Full Version History")
-      self.btn_fetch_all.setToolTip(
-        "Fetch every single release ever posted to this repository"
-      )
-      self.btn_fetch_all.clicked.connect(self.start_full_fetch)
-      fetch_btn_row.addWidget(self.btn_fetch_all)
-
+      assert isinstance(self.settings.max_pages_on_load, int)
+      fetch_btn_row.addWidget(self.newButton("Fetch Recent Updates", lambda: self.start_fetch(max_pages=self.settings.max_pages_on_load)))
+      fetch_btn_row.addWidget(self.newButton("Sync Full History", self.start_full_fetch))
       global_layout.addLayout(fetch_btn_row)
 
-      # Global Checkboxes
-      update_cb = QCheckBox("check for launcher updates when opening")
-      global_layout.addWidget(update_cb)
-      self.widgets_to_save["cb_check for launcher updates when opening"] = (
-        update_cb
+      global_layout.addLayout(
+        self.newRow("GitHub PAT (Optional):", self.newLineEdit("GitHub PAT (Optional)", 'github_pat', password=True))
       )
-
-      # GitHub PAT
-      self.github_pat = QLineEdit()
-      self.github_pat.setEchoMode(QLineEdit.EchoMode.Password)
-      self.github_pat.setPlaceholderText("GitHub PAT (Optional)")
-      global_layout.addWidget(self.github_pat)
-      self.widgets_to_save["github_pat"] = self.github_pat
 
       global_box.setLayout(global_layout)
       outer_layout.addWidget(global_box)
@@ -1145,54 +1071,94 @@ def run(config: Config):
       local_box = QGroupBox(f"Local Settings ({config.GH_REPO})")
       local_layout = QVBoxLayout()
 
-      # extra_game_args
-      self.extra_game_args = QLineEdit()
-      self.extra_game_args.setPlaceholderText("Game arguments (e.g. -windowed)")
-      local_layout.addWidget(self.extra_game_args)
-      self.widgets_to_save["extra_game_args"] = self.extra_game_args
-
-      # Utility Buttons (Local context)
-      btn_row = QHBoxLayout()
-      if config.getGameLogLocation():
-        btn_log = QPushButton("Open Game Logs")
-        btn_log.clicked.connect(
-          lambda: QDesktopServices.openUrl(
-            QUrl.fromLocalFile(os.path.abspath(config.getGameLogLocation()))
-          )
+      # Extra Args
+      local_layout.addLayout(
+        self.newRow(
+          "Extra Game Args:",
+          self.newLineEdit("Extra Game Args", "extra_game_args"),
         )
-        btn_row.addWidget(btn_log)
+      )
 
-      btn_dl_all = QPushButton("Download All")
-      btn_dl_all.clicked.connect(self.download_all_versions)
-      btn_row.addWidget(btn_dl_all)
-      local_layout.addLayout(btn_row)
+      # Custom Nodes Injection
+      if config.addCustomNodes:
+        custom_widgets = config.addCustomNodes(self, local_layout)
+        if custom_widgets:
+          for key, widget in custom_widgets.items():
+            self.widgets_to_save[key] = widget
+            if key not in self.local_keys:
+              self.local_keys.append(key)
 
       local_box.setLayout(local_layout)
       outer_layout.addWidget(local_box)
 
-      # --- Bottom Action Buttons ---
+      # --- BOTTOM ACTION BUTTONS ---
       bottom_btn_layout = QHBoxLayout()
-
-      # Cancel Button: Discards changes and closes
       cancel_btn = QPushButton("Cancel")
       cancel_btn.clicked.connect(self.settings_dialog.reject)
-      bottom_btn_layout.addWidget(cancel_btn)
-
-      # Done Button: Saves changes and closes
       done_btn = QPushButton("Done")
-      done_btn.setDefault(True)  # Pressing Enter triggers this
+      done_btn.setDefault(True)
       done_btn.clicked.connect(self.settings_dialog.accept)
-      bottom_btn_layout.addWidget(done_btn)
 
+      bottom_btn_layout.addWidget(cancel_btn)
+      bottom_btn_layout.addWidget(done_btn)
       outer_layout.addLayout(bottom_btn_layout)
 
-      custom_widgets = config.addCustomNodes(self, local_layout)
+    def newSpinBox(self, min_val, max_val, default, saveId, width=60):
+      node = QSpinBox()
+      node.setRange(min_val, max_val)
+      node.setValue(default)
+      node.setFixedWidth(width)
 
-      # Register them for saving/loading and mark as Local
-      for key, widget in custom_widgets.items():
-        self.widgets_to_save[key] = widget
-        if key not in self.local_keys:
-          self.local_keys.append(key)
+      # Link to the settings object: updates whenever the value changes
+      node.valueChanged.connect(lambda v: setattr(self.settings, saveId, v))
+      # Set initial value
+      setattr(self.settings, saveId, default)
+
+      self.widgets_to_save[saveId] = node
+      return node
+
+    def newButton(self, text, onclick):
+      node = QPushButton(text)
+      node.pressed.connect(onclick)
+      return node
+
+    def newRow(self, label_text, widget, saveId=None):
+      """Creates a horizontal row with a label and a widget."""
+      row = QHBoxLayout()
+      row.addWidget(QLabel(label_text))
+      row.addWidget(widget)
+      row.addStretch()
+      if saveId:
+        self.widgets_to_save[saveId] = widget
+      return row
+
+    def newCheckbox(self, text, default, saveId, tooltip="", onChange=None):
+      node = QCheckBox(text)
+      node.setChecked(default)
+      if tooltip:
+        node.setToolTip(tooltip)
+      if onChange:
+        node.toggled.connect(onChange)
+
+      # Link to the settings object
+      node.toggled.connect(lambda v: setattr(self.settings, saveId, v))
+      setattr(self.settings, saveId, default)
+
+      self.widgets_to_save[saveId] = node
+      return node
+
+    def newLineEdit(self, placeholder, saveId, password=False):
+      node = QLineEdit()
+      node.setPlaceholderText(placeholder)
+      if password:
+        node.setEchoMode(QLineEdit.EchoMode.Password)
+
+      # Link to the settings object
+      node.textChanged.connect(lambda v: setattr(self.settings, saveId, v))
+      setattr(self.settings, saveId, "")
+
+      self.widgets_to_save[saveId] = node
+      return node
 
   app = QApplication(sys.argv)
   window = Launcher()
