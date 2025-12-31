@@ -42,6 +42,7 @@ def run(config):
     QSpinBox,
     QPlainTextEdit,
     QDialog,
+    QGroupBox,
   )
   from PySide6.QtCore import QThread, Signal
   from PySide6.QtGui import (
@@ -200,7 +201,6 @@ def run(config):
   MISSING_COLOR = Qt.GlobalColor.gray
 
   os.makedirs("./launcherData", exist_ok=True)
-  os.makedirs("./gameData", exist_ok=True)
 
   def get_file_hash(path):
     """Calculate SHA256 hash of a file in chunks to save memory."""
@@ -580,26 +580,61 @@ def run(config):
 
   class Launcher(QWidget):
     def save_user_settings(self):
-      settings = {}
+      local_data = {}
+      global_data = {}
+
       for key, widget in self.widgets_to_save.items():
+        # Determine value based on widget type
         if isinstance(widget, QLineEdit):
-          settings[key] = widget.text()
+          value = widget.text()
         elif isinstance(widget, QCheckBox):
-          settings[key] = widget.isChecked()
-        elif isinstance(widget, QSpinBox):  # Added this
-          settings[key] = widget.value()
-      save_settings(settings)
+          value = widget.isChecked()
+        elif isinstance(widget, QSpinBox):
+          value = widget.value()
+        else:
+          continue
+
+        # Sort into appropriate bucket
+        if key in self.local_keys:
+          local_data[key] = value
+        else:
+          global_data[key] = value
+
+      # Save to separate files
+      try:
+        with open(self.local_settings_file, "w", encoding="utf-8") as f:
+          json.dump(local_data, f, indent=2)
+        with open(self.GLOBAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
+          json.dump(global_data, f, indent=2)
+      except Exception as e:
+        print(f"Failed to save settings: {e}")
 
     def load_user_settings(self):
-      settings = load_settings()
-      for key, value in settings.items():
+      # Load both files
+      local_data = {}
+      global_data = {}
+
+      try:
+        if os.path.exists(self.local_settings_file):
+          with open(self.local_settings_file, "r", encoding="utf-8") as f:
+            local_data = json.load(f)
+        if os.path.exists(self.GLOBAL_SETTINGS_FILE):
+          with open(self.GLOBAL_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            global_data = json.load(f)
+      except Exception as e:
+        print(f"Failed to load settings: {e}")
+
+      # Combine for easy application
+      combined = {**global_data, **local_data}
+
+      for key, value in combined.items():
         widget = self.widgets_to_save.get(key)
         if widget:
           if isinstance(widget, QLineEdit):
             widget.setText(str(value))
           elif isinstance(widget, QCheckBox):
             widget.setChecked(bool(value))
-          elif isinstance(widget, QSpinBox):  # Added this
+          elif isinstance(widget, QSpinBox):
             widget.setValue(int(value))
 
     def closeEvent(self, event):
@@ -819,6 +854,7 @@ def run(config):
               else MISSING_COLOR
             )
           )
+          assert widget is VersionItemWidget
           widget.label.setText(new_text)
           widget.set_label_color(new_color)
           if (
@@ -932,6 +968,16 @@ def run(config):
       self.setWindowTitle(config.WINDOW_TITLE)
       self.setFixedSize(420, 600)
       self.setStyleSheet(f.read("./main.css"))
+      self.local_keys = ["extra_game_args"]
+      self.global_keys = [
+        "github_pat",
+        "cb_check for launcher updates when opening",
+        "max_concurrent_dls",
+      ]
+
+      self.GLOBAL_SETTINGS_FILE = "./launcherData/launcherSettings.json"
+      self.local_settings_file = os.path.join(GAME_ID, "launcherSettings.json")
+      os.makedirs(GAME_ID, exist_ok=True)
 
       main_layout = QVBoxLayout(self)
 
@@ -951,95 +997,17 @@ def run(config):
 
       self.widgets_to_save = {}  # store widgets for saving
 
-      self.settings_dialog = QDialog(self)
-      self.settings_dialog.setWindowTitle("Settings")
-      self.settings_dialog.setFixedWidth(400)
-      settings_layout = QVBoxLayout(self.settings_dialog)
-
       self.main_progress_bar = VersionItemWidget("", MISSING_COLOR)
       main_layout.addWidget(self.main_progress_bar)
 
-      settings_row = QHBoxLayout()
-
-      # Label for the spinbox
-      max_dl_label = QLabel("Max Concurrent Downloads:")
-
-      self.max_dl_spinbox = QSpinBox()
-      self.max_dl_spinbox.setRange(0, 10)
-      self.max_dl_spinbox.setValue(3)
-      self.max_dl_spinbox.setFixedWidth(60)
-
-      # Hook the change event
-      self.max_dl_spinbox.valueChanged.connect(self.process_download_queue)
-
-      settings_row.addWidget(max_dl_label)
-      settings_row.addWidget(self.max_dl_spinbox)
-      settings_row.addStretch()  # Push widgets to the left
-
-      # -- Log / Folder Buttons --
-      btn_row1 = QHBoxLayout()
-      temp = QPushButton("open launcher log")
-      temp.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath("./logs"))))
-      btn_row1.addWidget(temp)
-      if config.getGameLogLocation():
-        temp = QPushButton("open game logs folder")
-        temp.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(config.getGameLogLocation()))))
-        btn_row1.addWidget(temp)
-      settings_layout.addLayout(btn_row1)
-
-      btn_row2 = QHBoxLayout()
-      if config.USE_CENTRAL_GAME_DATA_FOLDER:
-        temp = QPushButton("open game data folder")
-        temp.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath("./gameData"))))
-        btn_row2.addWidget(temp)
-      self.btn_download_all = QPushButton("Download All Versions")
-      self.btn_download_all.clicked.connect(self.download_all_versions)
-      btn_row2.addWidget(self.btn_download_all)
-      settings_layout.addLayout(btn_row2)
-
-      # -- Max Downloads --
-      max_dl_row = QHBoxLayout()
-      max_dl_label = QLabel("Max Concurrent Downloads:")
-      self.max_dl_spinbox = QSpinBox()
-      self.max_dl_spinbox.setRange(0, 10)
-      self.max_dl_spinbox.setValue(3)
-      self.max_dl_spinbox.setFixedWidth(60)
-      self.max_dl_spinbox.valueChanged.connect(self.process_download_queue)
-      max_dl_row.addWidget(max_dl_label)
-      max_dl_row.addWidget(self.max_dl_spinbox)
-      max_dl_row.addStretch()
-      settings_layout.addLayout(max_dl_row)
-      self.widgets_to_save["max_concurrent_dls"] = self.max_dl_spinbox
-
-      # -- GitHub PAT --
-      self.github_pat = QLineEdit()
-      self.github_pat.setEchoMode(QLineEdit.EchoMode.Password)
-      self.github_pat.setPlaceholderText("github pat (optional)")
-      settings_layout.addWidget(self.github_pat)
-      self.widgets_to_save["github_pat"] = self.github_pat
-
-      # -- Checkboxes --
-      self.checkboxes = {}
-      checks = ["check for launcher updates when opening"]
-      for text in checks:
-        cb = QCheckBox(text)
-        cb.setChecked(True)
-        settings_layout.addWidget(cb)
-        self.checkboxes[text] = cb
-        self.widgets_to_save[f"cb_{text}"] = cb
-
-      # -- Command Args --
-      self.command_input = QLineEdit("")
-      self.command_input.setPlaceholderText("game args go here")
-      settings_layout.addWidget(self.command_input)
-      self.widgets_to_save["command_input"] = self.command_input
+      # Load saved settings
+      self.setup_settings_dialog()
+      self.load_user_settings()
 
       # --- 4. MAIN WINDOW SETTINGS BUTTON ---
       self.btn_settings = QPushButton("Settings")
       self.btn_settings.clicked.connect(self.settings_dialog.show)
       main_layout.addWidget(self.btn_settings)
-      # Load saved settings
-      self.load_user_settings()
       config.addCustomNodes(self)
 
       # Container for the console
@@ -1103,6 +1071,80 @@ def run(config):
       self.main_progress_bar.label.setText("")
       self.main_progress_bar.set_progress(101)
       self.update_version_list(releases)
+
+    def setup_settings_dialog(self):
+      self.settings_dialog = QDialog(self)
+      self.settings_dialog.setWindowTitle("Settings")
+      self.settings_dialog.setFixedWidth(420)
+      outer_layout = QVBoxLayout(self.settings_dialog)
+
+      # --- GLOBAL SETTINGS SECTION ---
+      global_box = QGroupBox("Global Settings (All Games)")
+      global_layout = QVBoxLayout()
+
+      # Max Downloads
+      max_dl_row = QHBoxLayout()
+      max_dl_row.addWidget(QLabel("Max Concurrent Downloads:"))
+      self.max_dl_spinbox = QSpinBox()
+      self.max_dl_spinbox.setRange(0, 10)
+      self.max_dl_spinbox.setValue(3)
+      self.max_dl_spinbox.setFixedWidth(60)
+      self.max_dl_spinbox.valueChanged.connect(self.process_download_queue)
+      max_dl_row.addWidget(self.max_dl_spinbox)
+      max_dl_row.addStretch()
+      global_layout.addLayout(max_dl_row)
+      self.widgets_to_save["max_concurrent_dls"] = self.max_dl_spinbox
+
+      # Global Checkboxes
+      update_cb = QCheckBox("check for launcher updates when opening")
+      global_layout.addWidget(update_cb)
+      self.widgets_to_save["cb_check for launcher updates when opening"] = (
+        update_cb
+      )
+
+      # GitHub PAT
+      self.github_pat = QLineEdit()
+      self.github_pat.setEchoMode(QLineEdit.EchoMode.Password)
+      self.github_pat.setPlaceholderText("GitHub PAT (Optional)")
+      global_layout.addWidget(self.github_pat)
+      self.widgets_to_save["github_pat"] = self.github_pat
+
+      global_box.setLayout(global_layout)
+      outer_layout.addWidget(global_box)
+
+      # --- LOCAL SETTINGS SECTION ---
+      local_box = QGroupBox(f"Local Settings ({config.GH_REPO})")
+      local_layout = QVBoxLayout()
+
+      # extra_game_args
+      self.extra_game_args = QLineEdit()
+      self.extra_game_args.setPlaceholderText("Game arguments (e.g. -windowed)")
+      local_layout.addWidget(self.extra_game_args)
+      self.widgets_to_save["extra_game_args"] = self.extra_game_args
+
+      # Utility Buttons (Local context)
+      btn_row = QHBoxLayout()
+      if config.getGameLogLocation():
+        btn_log = QPushButton("Open Game Logs")
+        btn_log.clicked.connect(
+          lambda: QDesktopServices.openUrl(
+            QUrl.fromLocalFile(os.path.abspath(config.getGameLogLocation()))
+          )
+        )
+        btn_row.addWidget(btn_log)
+
+      btn_dl_all = QPushButton("Download All")
+      btn_dl_all.clicked.connect(self.download_all_versions)
+      btn_row.addWidget(btn_dl_all)
+      local_layout.addLayout(btn_row)
+
+      local_box.setLayout(local_layout)
+      outer_layout.addWidget(local_box)
+
+      # Bottom Close Button
+      close_btn = QPushButton("Done")
+      close_btn.clicked.connect(self.settings_dialog.accept)
+      outer_layout.addWidget(close_btn)
 
   app = QApplication(sys.argv)
   window = Launcher()
