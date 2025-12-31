@@ -345,76 +345,61 @@ def run(config: Config):
     finished = Signal(list)  # list of releases
     error = Signal(str)
 
-    def __init__(self, pat=None):
+    def __init__(self, pat=None, max_pages=1):
       super().__init__()
       self.pat = pat
+      self.max_pages = max_pages  # 0 means "All"
 
     def run(self):
       if OFFLINE:
         self.finished.emit([])
         return
-
       try:
         releases = []
         headers = {"Authorization": f"token {self.pat}"} if self.pat else {}
-        rand = random.random()
         page = 0
-        final_size = -1
+        if self.max_pages == 0:
+          rand = random.random()
+          final_size = -1
 
-        # HEAD request to detect total pages
-        head = requests.head(
-          f"{API_URL}?page=0&rand={rand}", headers=headers, timeout=10
-        )
-        if "Link" in head.headers:
-          m = re.search(
-            r'\?page=(\d+)&rand=[\d.]+>; rel="last"', head.headers["Link"]
+          # HEAD request to detect total pages
+          head = requests.head(
+            f"{API_URL}?page=0&rand={rand}", headers=headers, timeout=10
           )
-          if m:
-            final_size = int(m.group(1)) + 2
+          if "Link" in head.headers:
+            m = re.search(
+              r'\?page=(\d+)&rand=[\d.]+>; rel="last"',
+              head.headers["Link"],
+            )
+            if m:
+              final_size = int(m.group(1)) + 1
 
         # Fetch pages
         while True:
           page += 1
+          # Check if we should stop based on max_pages
+          if self.max_pages > 0 and page > self.max_pages:
+            break
+
           r = requests.get(
-            f"{API_URL}?page={page}&rand={rand}",
-            headers=headers,
-            timeout=30,
+            f"{API_URL}?page={page}", headers=headers, timeout=30
           )
           if r.status_code != 200:
-            raise RuntimeError(
-              f"Download failed: {r.status_code} - {r.reason}"
-            )
-
+            break
           data = r.json()
           if not data:
             break
+
           releases.extend(data)
-
-          if final_size > 0:
-            self.progress.emit(page + 1, final_size, releases)
+          self.progress.emit(
+            page,
+            (self.max_pages) if self.max_pages > 0 else final_size,
+            releases,
+          )
 
         self.finished.emit(releases)
-
       except Exception as e:
-        self.finished.emit(releases)
         self.error.emit(str(e))
-
-  def save_settings(settings: dict):
-    try:
-      with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
-    except Exception as e:
-      print("Failed to save settings:", e)
-
-  def load_settings() -> dict:
-    try:
-      with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-    except FileNotFoundError:
-      return {}
-    except Exception as e:
-      print("Failed to load settings:", e)
-      return {}
 
   class VersionItemWidget(QWidget):
     class ProgressTypes(Enum):
@@ -565,21 +550,6 @@ def run(config: Config):
         alpha = int(min_alpha + (255 - min_alpha) * math.pow(pos, exponent))
         grad.setColorAt(pos, QColor(*self.progressColor, alpha))
       painter.fillRect(rect, grad)
-
-  # class ConsoleRedirector:
-  #   def __init__(self, text_widget):
-  #     self.text_widget = text_widget
-
-  #   def write(self, text):
-  #     # Move cursor to the end so it scrolls automatically
-  #     self.text_widget.moveCursor(QTextCursor.MoveOperation.End)
-  #     self.text_widget.insertPlainText(text)
-  #     # Ensure it scrolls to the new text
-  #     self.text_widget.ensureCursorVisible()
-
-  #   def flush(self):
-  #     # Required for file-like objects
-  #     pass
 
   class Launcher(QWidget):
     def save_user_settings(self):
@@ -794,6 +764,10 @@ def run(config: Config):
     def update_version_list(self):
       if not self.version_list:
         return
+      f.write(
+        os.path.join(GAME_ID, "launcherData/cache/releases.json"),
+        json.dumps(self.found_releases),
+      )
       all_items_data = []
       local_versions = set()
       if os.path.isdir(VERSIONS_DIR):
@@ -936,24 +910,6 @@ def run(config: Config):
       # versions_data.sort(key=get_sort_key, reverse=False)
       return versions_data
 
-    # def toggle_console(self):
-    #   if self.is_console_expanded:
-    #     self.console_output.setFixedHeight(28)
-    #     # Hide scrollbar in one-line mode
-    #     self.console_output.setVerticalScrollBarPolicy(
-    #       Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-    #     )
-    #     self.console_toggle_btn.setText("▲")
-    #     self.is_console_expanded = False
-    #   else:
-    #     self.console_output.setFixedHeight(150)
-    #     # Show scrollbar in expanded mode
-    #     self.console_output.setVerticalScrollBarPolicy(
-    #       Qt.ScrollBarPolicy.ScrollBarAsNeeded
-    #     )
-    #     self.console_toggle_btn.setText("▼")
-    #     self.is_console_expanded = True
-
     def download_all_versions(self):
       online_count = 0
       for i in range(self.version_list.count()):
@@ -1027,69 +983,70 @@ def run(config: Config):
       main_layout.addWidget(self.btn_settings)
       config.addCustomNodes(self)
 
-      # # Container for the console
-      # self.console_row_layout = QHBoxLayout()
-      # self.console_row_layout.setSpacing(2)
-
-      # # 2. Setup the Console Widget
-      # self.console_output = QPlainTextEdit()
-      # self.console_output.setReadOnly(True)
-      # self.console_output.setVerticalScrollBarPolicy(
-      #   Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-      # )
-      # self.console_output.setFixedHeight(28)
-      # self.is_console_expanded = False
-      # self.console_output.setStyleSheet(
-      #   """background-color: #1e1e1e; color: #d4d4d4;font-family: 'Consolas', monospace; font-size: 10pt;border: 1px solid #333;"""
-      # )
-
-      # # 3. Setup the 1x1 Toggle Button
-      # self.console_toggle_btn = QPushButton("▲")
-      # self.console_toggle_btn.setFixedSize(28, 28)
-      # self.console_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-      # self.console_toggle_btn.clicked.connect(self.toggle_console)
-
-      # # 4. Add widgets with explicit Bottom Alignment
-      # # The console expands, so it doesn't need a specific alignment,
-      # # but the button must be told to stay down.
-      # self.console_row_layout.addWidget(self.console_output)
-      # self.console_row_layout.addWidget(
-      #   self.console_toggle_btn, alignment=Qt.AlignmentFlag.AlignBottom
-      # )
-
-      # # 5. Add the row to your main layout
-      # main_layout.addLayout(self.console_row_layout)
-
-      # # Redirects
-      # sys.stdout = ConsoleRedirector(self.console_output)
-      # sys.stderr = ConsoleRedirector(self.console_output)
       # ---- ONLINE FETCH (only if not offline) ----
-      if not OFFLINE:
-        self.release_thread = ReleaseFetchThread(
-          pat=self.github_pat.text() or None
-        )
-        self.main_progress_bar.label.setText("Loading Game Versions")
-        self.main_progress_bar.setModeUnknownEnd()
-        self.release_thread.progress.connect(self.on_release_progress)
-        self.release_thread.finished.connect(self.on_release_finished)
-        self.found_releases = []
-        self.update_version_list()
+      self.found_releases = json.loads(
+        f.read(os.path.join(GAME_ID, "launcherData/cache/releases.json"), "[]")
+      )
+      self.update_version_list()
+      if not OFFLINE and self.fetch_on_load.isChecked():
+        self.start_fetch(max_pages=self.max_pages_spin.value())
         self.release_thread.error.connect(
           lambda e: print("Release fetch error:", e)
         )
         self.release_thread.start()
         self.main_progress_bar.show()
+      else:
+        self.main_progress_bar.set_progress(101)
+
+    def start_fetch(self, max_pages=1):
+      """Standard fetch with a page limit."""
+      if hasattr(self, "release_thread") and self.release_thread.isRunning():
+        return
+
+      self.release_thread = ReleaseFetchThread(
+        pat=self.github_pat.text() or None, max_pages=max_pages
+      )
+      if max_pages:
+        self.main_progress_bar.setModeKnownEnd()
+        self.main_progress_bar.set_progress((0 / max_pages) * 100)
+      else:
+        self.main_progress_bar.setModeUnknownEnd()
+      self.main_progress_bar.label.setText(f"Fetching {max_pages} page(s)...")
+      self.release_thread.progress.connect(self.on_release_progress)
+      self.release_thread.finished.connect(self.on_release_finished)
+      self.release_thread.start()
+
+    def merge_releases(self, existing, new_data):
+      # Use a dictionary to handle the "replace=True" logic by 'tag_name'
+      # Dictionary keys are unique, so setting a key again replaces the value
+      merged = {rel["tag_name"]: rel for rel in existing}
+
+      for rel in new_data:
+        tag = rel.get("tag_name")
+        if tag:
+          merged[tag] = rel  # This adds new ones OR replaces existing ones
+
+      # Return as a sorted list (usually you want newest at the top)
+      return list(merged.values())
+
+    def start_full_fetch(self):
+      """Triggered by button to fetch everything."""
+      print("Starting full release fetch...")
+      self.start_fetch(max_pages=0)  # 0 signals 'All' in our thread logic
 
     def on_release_progress(self, page, total, releases):
       self.main_progress_bar.setModeKnownEnd()
       self.main_progress_bar.set_progress((page / total) * 100)
-      self.found_releases = releases
+      self.found_releases = self.merge_releases(self.found_releases, releases)
+      self.main_progress_bar.label.setText(
+        f"Fetching {total} page(s)... {(page / total) * 100}% - {page} / {total}"
+      )
       self.update_version_list()
 
     def on_release_finished(self, releases):
       self.main_progress_bar.label.setText("")
       self.main_progress_bar.set_progress(101)
-      self.found_releases = releases
+      self.found_releases = self.merge_releases(self.found_releases, releases)
       self.update_version_list()
 
     def setup_settings_dialog(self):
@@ -1114,6 +1071,46 @@ def run(config: Config):
       max_dl_row.addStretch()
       global_layout.addLayout(max_dl_row)
       self.widgets_to_save["max_concurrent_dls"] = self.max_dl_spinbox
+
+      # Fetch on Load Bool
+      self.fetch_on_load = QCheckBox("Fetch releases on launcher start")
+      self.fetch_on_load.setChecked(True)
+      global_layout.addWidget(self.fetch_on_load)
+      self.widgets_to_save["fetch_on_load"] = self.fetch_on_load
+
+      # Max Pages Int
+      page_row = QHBoxLayout()
+      page_row.addWidget(QLabel("Max pages to fetch on load:"))
+      self.max_pages_spin = QSpinBox()
+      self.max_pages_spin.setRange(0, 100)
+      self.max_pages_spin.setValue(1)
+      page_row.addWidget(self.max_pages_spin)
+      page_row.addStretch()
+      global_layout.addLayout(page_row)
+      self.widgets_to_save["max_pages_on_load"] = self.max_pages_spin
+
+      # --- Fetch Actions Row ---
+      fetch_btn_row = QHBoxLayout()
+
+      # Button 1: Fetch based on the SpinBox limit
+      self.btn_fetch_limit = QPushButton("Fetch Recent Updates")
+      self.btn_fetch_limit.setToolTip(
+        "Fetch the number of pages specified in the limit above"
+      )
+      self.btn_fetch_limit.clicked.connect(
+        lambda: self.start_fetch(max_pages=self.max_pages_spin.value())
+      )
+      fetch_btn_row.addWidget(self.btn_fetch_limit)
+
+      # Button 2: Fetch everything
+      self.btn_fetch_all = QPushButton("Sync Full Version History")
+      self.btn_fetch_all.setToolTip(
+        "Fetch every single release ever posted to this repository"
+      )
+      self.btn_fetch_all.clicked.connect(self.start_full_fetch)
+      fetch_btn_row.addWidget(self.btn_fetch_all)
+
+      global_layout.addLayout(fetch_btn_row)
 
       # Global Checkboxes
       update_cb = QCheckBox("check for launcher updates when opening")
