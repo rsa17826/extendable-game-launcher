@@ -49,7 +49,7 @@ launcher.run(
   launcher.Config(
     WINDOW_TITLE="Vex++ Launcher",
     USE_HARD_LINKS=True,
-    USE_CENTRAL_GAME_DATA_FOLDER=True,
+    CAN_USE_CENTRAL_GAME_DATA_FOLDER=True,
     GH_USERNAME="rsa17826",
     GH_REPO="vex-plus-plus",
     getGameLogLocation=getGameLogLocation,
