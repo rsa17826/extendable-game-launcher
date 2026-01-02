@@ -22,16 +22,6 @@ class Config:
   """if true will make all game versions appear to be launched from a single dir else will just launch each one from a separate location"""
 
 
-from enum import Enum
-
-
-class Statuses(Enum):
-  local = 0
-  online = 1
-  downloading = 2
-  waitingForDownload = 3
-
-
 def run(config: Config):
   import sys
   import time
@@ -232,6 +222,42 @@ def run(config: Config):
         except Exception as e:
           print(f"Error processing {filename}: {e}")
 
+  def add_version_item(list_widget, version, status, path=None, release=None):
+    item = QListWidgetItem()
+
+    # Determine color based on status
+    if status == "Local":
+      color = LOCAL_COLOR
+    elif status == "Online":
+      color = ONLINE_COLOR
+    else:
+      color = MISSING_COLOR
+
+    text = (
+      f"Run version {version}"
+      if status == "Local"
+      else f"Download version {version}"
+    )
+
+    # Pass the color to the widget
+    widget = VersionItemWidget(text, color)
+    widget.setModeKnownEnd()
+
+    item.setSizeHint(widget.sizeHint())
+    list_widget.addItem(item)
+    list_widget.setItemWidget(item, widget)
+
+    item.setData(
+      Qt.ItemDataRole.UserRole,
+      {
+        "version": version,
+        "status": status,
+        "path": path,
+        "widget": widget,
+        "release": release,
+      },
+    )
+
   class AssetDownloadThread(QThread):
     progress = Signal(int)  # percent
     finished = Signal(str)
@@ -366,11 +392,6 @@ def run(config: Config):
       self.startTime = time.time()
       self.update()
 
-    def setModeDisabled(self):
-      self.noKnownEndPoint = False
-      self.progress = 101
-      self.update()
-
     def set_label_color(self, color):
       self.label.setStyleSheet(f"background: transparent; color: {color.name};")
 
@@ -489,45 +510,6 @@ def run(config: Config):
       return None
 
   class Launcher(QWidget):
-    def add_version_item(
-      self, version: str, status: Statuses, path=None, release=None
-    ):
-      item = QListWidgetItem()
-
-      # Determine color based on status
-      if status == Statuses.local:
-        color = LOCAL_COLOR
-      elif status == Statuses.online:
-        color = ONLINE_COLOR
-      else:
-        color = MISSING_COLOR
-
-      text = (
-        f"Run version {version}"
-        if status == Statuses.local
-        else f"Download version {version}"
-      )
-
-      # Pass the color to the widget
-      widget = VersionItemWidget(text, color)
-      widget.setModeKnownEnd()
-
-      item.setSizeHint(widget.sizeHint())
-      self.version_list.addItem(item)
-      self.version_list.setItemWidget(item, widget)
-
-      item.setData(
-        Qt.ItemDataRole.UserRole,
-        {
-          "version": version,
-          "status": status,
-          "path": path,
-          "widget": widget,
-          "release": release,
-        },
-      )
-
-    # region settings
     def save_user_settings(self):
       local_data = {}
       global_data = {}
@@ -586,23 +568,19 @@ def run(config: Config):
           elif isinstance(widget, QSpinBox):
             widget.setValue(int(value))
 
-    # endregion
-    # region ignore
     def closeEvent(self, event):
       self.save_user_settings()
       super().closeEvent(event)
 
-    # endregion
     downloadingVersions = []
 
-    # region download
     def on_version_double_clicked(self, item):
       data = item.data(Qt.ItemDataRole.UserRole)
       if not data:
         return
 
       # Local → run
-      if data["status"] == Statuses.local:
+      if data["status"] == "Local":
         path = data.get("path")
         if path:
           config.gameLaunchRequested(path)
@@ -615,7 +593,7 @@ def run(config: Config):
         return
 
       # Online → download
-      if data["status"] == Statuses.online:
+      if data["status"] == "Online":
         self.start_queued_download_request(item)
 
     def start_queued_download_request(self, item):
@@ -642,10 +620,11 @@ def run(config: Config):
         return
 
       dest_dir = os.path.join(VERSIONS_DIR, tag)
+      os.makedirs(dest_dir, exist_ok=True)
       out_file = os.path.join(dest_dir, asset["name"])
 
       # UI state: Waiting (Orange Pulse)
-      widget = self.active_item_refs[data['version']]
+      widget = data["widget"]
       widget.label.setText(f"Waiting: {tag}")
       widget.setModeUnknownEnd()
 
@@ -670,7 +649,6 @@ def run(config: Config):
 
     def start_actual_download(self, item, url, out_file, dest_dir):
       print(url)
-      os.makedirs(dest_dir, exist_ok=True)
       data = item.data(Qt.ItemDataRole.UserRole)
       tag = data["version"]
 
@@ -741,7 +719,6 @@ def run(config: Config):
         widget.set_progress(percentage)
         widget.label.setText(f"Downloading {version_tag}... ({percentage}%)")
 
-    # endregion
     def update_version_list(self):
       if not self.version_list:
         return
@@ -758,7 +735,7 @@ def run(config: Config):
             all_items_data.append(
               {
                 "version": dirname,
-                "status": Statuses.local,
+                "status": "Local",
                 "path": full_path,
                 "release": None,
               }
@@ -770,7 +747,7 @@ def run(config: Config):
           all_items_data.append(
             {
               "version": version,
-              "status": Statuses.online,
+              "status": "Online",
               "path": None,
               "release": rel,
             }
@@ -785,7 +762,7 @@ def run(config: Config):
         target_count = len(sorted_data)
         if current_count < target_count:
           for _ in range(target_count - current_count):
-            self.add_version_item(version="loading", status=Statuses.online)
+            add_version_item(self.version_list, "loading", "Online")
         elif current_count > target_count:
           for _ in range(current_count - target_count):
             self.version_list.takeItem(self.version_list.count() - 1)
@@ -793,12 +770,20 @@ def run(config: Config):
         for i, data in enumerate(sorted_data):
           item = self.version_list.item(i)
           self.active_item_refs[data["version"]] = item
+          item = self.version_list.item(i)
+          old_data = item.data(Qt.ItemDataRole.UserRole)
+          # if (
+          #   old_data
+          #   and old_data.get("version") == data["version"]
+          #   and old_data.get("status") == data["status"]
+          # ):
+          #   continue
 
           widget = self.version_list.itemWidget(item)
           assert isinstance(widget, VersionItemWidget)
           new_text = (
             f"Run version {data['version']}"
-            if data["status"] == Statuses.local
+            if data["status"] == "Local"
             else f"Download version {data['version']}"
           )
           if data["version"] in self.downloadingVersions:
@@ -806,16 +791,19 @@ def run(config: Config):
               widget.setModeUnknownEnd()
             new_text = f"Downloading {data['version']}..."
           else:
-            widget.setModeDisabled()
-          match data["status"]:
-            case Statuses.local:
-              new_color = LOCAL_COLOR
-            case Statuses.online:
-              new_color = ONLINE_COLOR
-            case _:
-              new_color = MISSING_COLOR
+            widget.set_progress(101)
+          new_color = (
+            LOCAL_COLOR
+            if data["status"] == "Local"
+            else (
+              ONLINE_COLOR
+              if data["status"] == "Online"
+              else MISSING_COLOR
+            )
+          )
           widget.label.setText(new_text)
           widget.set_label_color(new_color)
+          data["widget"] = widget
           item.setData(Qt.ItemDataRole.UserRole, data)
       except Exception as e:
         print(f"Update Error: {e}")
@@ -837,8 +825,8 @@ def run(config: Config):
         if not config.gameVersionExists(full_path):
           continue
 
-        self.add_version_item(
-          version=dirname, status=Statuses.local, path=full_path
+        add_version_item(
+          self.version_list, dirname, status="Local", path=full_path
         )
 
     def sort_versions(self, versions_data):
@@ -852,8 +840,8 @@ def run(config: Config):
         status = item["status"]
 
         # Priority 2: Local Status
-        # (Assuming Statuses.local in your Python code corresponds to "LocalOnly")
-        is_local = 1 if status == Statuses.local else 0
+        # (Assuming "Local" in your Python code corresponds to "LocalOnly")
+        is_local = 1 if status == "Local" else 0
 
         # Priority 1: Last Ran Version
         is_last_ran = 1 if version == last_ran and is_local else 0
@@ -886,7 +874,7 @@ def run(config: Config):
         data = item.data(Qt.ItemDataRole.UserRole)
 
         # Check if it's Online and not already in the process of downloading
-        if data and data.get("status") == Statuses.online:
+        if data and data.get("status") == "Online":
           version = data.get("version")
           if version not in self.downloadingVersions:
             # We reuse the logic from on_version_double_clicked
@@ -900,7 +888,6 @@ def run(config: Config):
 
     def __init__(self):
       super().__init__()
-      self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
       self.settings = SettingsData()
       self.active_item_refs = {}  # Key: version_tag, Value: QListWidgetItem
       self.active_downloads = {}  # {version_tag: thread_object}
