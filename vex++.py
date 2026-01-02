@@ -45,7 +45,7 @@ def addCustomNodes(_self, layout) -> dict[str, QWidget]:
 
   level_name_input = _self.newLineEdit('Enter level name (e.g. Level_01)', 'input_level_name')
   layout.addWidget(_self.newCheckbox("Load Specific Level on Start", False, 'cb_load_custom_level', onChange=level_name_input.setEnabled))
-  level_name_input.setEnabled(_self.settings.cb_load_custom_level)
+  level_name_input.setEnabled(_self.settings.loadCustomLevel)
   layout.addWidget(level_name_input)
 
   return {}

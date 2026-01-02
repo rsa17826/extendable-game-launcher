@@ -463,6 +463,7 @@ def run(config: Config):
 
   class SettingsData:
     """A container for dot-notation access to settings."""
+
     def __getattr__(self, name) -> Any:
       return None
 
@@ -574,7 +575,8 @@ def run(config: Config):
             os.path.join(GAME_ID, "launcherData/lastRanVersion.txt"),
             data.get("version"),
           )
-
+          if self.settings.closeOnLaunch:
+            QApplication.quit()
         return
 
       if data["status"] == Statuses.online:
@@ -623,10 +625,10 @@ def run(config: Config):
       self.processDownloadQueue()
 
     def processDownloadQueue(self):
-      assert isinstance(self.settings.max_concurrent_dls, int)
+      assert isinstance(self.settings.maxConcurrentDls, int)
       while self.download_queue and (
-        len(self.active_downloads) < self.settings.max_concurrent_dls
-        or self.settings.max_concurrent_dls == 0
+        len(self.active_downloads) < self.settings.maxConcurrentDls
+        or self.settings.maxConcurrentDls == 0
       ):
         next_dl = self.download_queue.pop(0)
         self.startActualDownload(*next_dl)
@@ -846,9 +848,9 @@ def run(config: Config):
       self.setStyleSheet(f.read("./main.css"))
       self.local_keys = ["extra_game_args"]
       self.global_keys = [
-        "github_pat",
-        "cb_check for launcher updates when opening",
-        "max_concurrent_dls",
+        "githubPat",
+        "checkForLauncherUpdatesWhenOpening",
+        "maxConcurrentDls",
       ]
 
       self.GLOBAL_SETTINGS_FILE = "./launcherData/launcherSettings.json"
@@ -890,8 +892,8 @@ def run(config: Config):
         f.read(os.path.join(GAME_ID, "launcherData/cache/releases.json"), "[]")
       )
       self.updateVersionList()
-      if not OFFLINE and self.settings.fetch_on_load:
-        self.startFetch(max_pages=self.settings.max_pages_on_load)
+      if not OFFLINE and self.settings.fetchOnLoad:
+        self.startFetch(max_pages=self.settings.maxPagesOnLoad)
         self.release_thread.error.connect(
           lambda e: print("Release fetch error:", e)
         )
@@ -915,7 +917,7 @@ def run(config: Config):
         return
 
       self.release_thread = ReleaseFetchThread(
-        pat=self.settings.github_pat or None, max_pages=max_pages
+        pat=self.settings.githubPat or None, max_pages=max_pages
       )
       if max_pages:
         self.main_progress_bar.setModeKnownEnd()
@@ -975,29 +977,36 @@ def run(config: Config):
       global_layout.addLayout(
         self.newRow(
           "Max Concurrent Downloads:",
-          self.newSpinBox(0, 10, 3, "max_concurrent_dls"),
+          self.newSpinBox(0, 10, 3, "maxConcurrentDls"),
         )
       )
 
       global_layout.addWidget(
         self.newCheckbox(
-          "Fetch releases on launcher start", True, "fetch_on_load"
+          "check for launcher updates when opening",
+          True,
+          "checkForLauncherUpdatesWhenOpening",
+        )
+      )
+      global_layout.addWidget(
+        self.newCheckbox(
+          "Fetch releases on launcher start", True, "fetchOnLoad"
         )
       )
 
       global_layout.addLayout(
         self.newRow(
           "Max pages to fetch on load:",
-          self.newSpinBox(0, 100, 1, "max_pages_on_load"),
+          self.newSpinBox(0, 100, 1, "maxPagesOnLoad"),
         )
       )
 
       fetch_btn_row = QHBoxLayout()
-      assert isinstance(self.settings.max_pages_on_load, int)
+      assert isinstance(self.settings.maxPagesOnLoad, int)
       fetch_btn_row.addWidget(
         self.newButton(
           "Fetch Recent Updates",
-          lambda: self.startFetch(max_pages=self.settings.max_pages_on_load),
+          lambda: self.startFetch(max_pages=self.settings.maxPagesOnLoad),
         )
       )
       fetch_btn_row.addWidget(
@@ -1010,12 +1019,14 @@ def run(config: Config):
           self.downloadAllVersions,
         )
       )
-
+      global_layout.addWidget(
+        self.newCheckbox("Close launcher on game start", False, "closeOnLaunch")
+      )
       global_layout.addLayout(
         self.newRow(
           "GitHub PAT (Optional):",
           self.newLineEdit(
-            "GitHub PAT (Optional)", "github_pat", password=True
+            "GitHub PAT (Optional)", "githubPat", password=True
           ),
         )
       )
