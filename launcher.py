@@ -399,7 +399,7 @@ def run(config: Config):
         self.progress = int(
           ((time.time() - self.startTime) * self.animSpeed) % 100
         )
-        QTimer.singleShot(0, self.update)
+        QTimer.singleShot(16, self.update)
 
       if self.progressType == self.ProgressTypes.both:
         fill_end = w * self.progress / 100
@@ -522,7 +522,6 @@ def run(config: Config):
           "version": version,
           "status": status,
           "path": path,
-          "widget": widget,
           "release": release,
         },
       )
@@ -646,12 +645,13 @@ def run(config: Config):
 
       # UI state: Waiting (Orange Pulse)
       widget = self.active_item_refs[data['version']]
+      assert isinstance(widget, VersionItemWidget)
       widget.label.setText(f"Waiting: {tag}")
       widget.setModeUnknownEnd()
 
       # Add to queue and process
       self.download_queue.append(
-        (item, asset["browser_download_url"], out_file, dest_dir)
+        (item.data(Qt.ItemDataRole.UserRole)['version'], asset["browser_download_url"], out_file, dest_dir)
       )
       self.process_download_queue()
 
@@ -668,11 +668,9 @@ def run(config: Config):
       self.update_version_list()
       QTimer.singleShot(0, lambda: QTimer.singleShot(0, self.update_version_list))
 
-    def start_actual_download(self, item, url, out_file, dest_dir):
+    def start_actual_download(self, tag, url, out_file, dest_dir):
       print(url)
       os.makedirs(dest_dir, exist_ok=True)
-      data = item.data(Qt.ItemDataRole.UserRole)
-      tag = data["version"]
 
       # 1. Create the thread
       dl_thread = AssetDownloadThread(url, out_file)
@@ -684,9 +682,7 @@ def run(config: Config):
         self.process_download_queue()
 
         # Find the CURRENT item reference (it may have moved due to sorting)
-        current_item = self.active_item_refs.get(tag)
-        assert current_item is not None
-        current_widget = self.version_list.itemWidget(current_item)
+        current_widget = self.active_item_refs.get(tag)
         assert isinstance(current_widget, VersionItemWidget)
         current_widget.label.setText(f"Extracting {tag}...")
         current_widget.setModeUnknownEnd()  # Pulse while unzipping
@@ -733,13 +729,10 @@ def run(config: Config):
       dl_thread.start()
 
     def handle_download_progress(self, version_tag, percentage):
-      item = self.active_item_refs.get(version_tag)
-
-      if item:
-        widget = self.version_list.itemWidget(item)
-        assert isinstance(widget, VersionItemWidget)
-        widget.set_progress(percentage)
-        widget.label.setText(f"Downloading {version_tag}... ({percentage}%)")
+      widget = self.active_item_refs.get(version_tag)
+      assert isinstance(widget, VersionItemWidget)
+      widget.set_progress(percentage)
+      widget.label.setText(f"Downloading {version_tag}... ({percentage}%)")
 
     # endregion
     def update_version_list(self):
@@ -792,21 +785,20 @@ def run(config: Config):
 
         for i, data in enumerate(sorted_data):
           item = self.version_list.item(i)
-          self.active_item_refs[data["version"]] = item
 
           widget = self.version_list.itemWidget(item)
+          self.active_item_refs[data["version"]] = widget
           assert isinstance(widget, VersionItemWidget)
-          new_text = (
-            f"Run version {data['version']}"
-            if data["status"] == Statuses.local
-            else f"Download version {data['version']}"
-          )
           if data["version"] in self.downloadingVersions:
             if not widget.noKnownEndPoint:
               widget.setModeUnknownEnd()
-            new_text = f"Downloading {data['version']}..."
           else:
             widget.setModeDisabled()
+            widget.label.setText(
+              f"Run version {data['version']}"
+              if data["status"] == Statuses.local
+              else f"Download version {data['version']}"
+            )
           match data["status"]:
             case Statuses.local:
               new_color = LOCAL_COLOR
@@ -814,14 +806,12 @@ def run(config: Config):
               new_color = ONLINE_COLOR
             case _:
               new_color = MISSING_COLOR
-          widget.label.setText(new_text)
           widget.set_label_color(new_color)
           item.setData(Qt.ItemDataRole.UserRole, data)
       except Exception as e:
         print(f"Update Error: {e}")
-      finally:
-        self.version_list.blockSignals(False)
-        self.version_list.setUpdatesEnabled(True)
+      self.version_list.blockSignals(False)
+      self.version_list.setUpdatesEnabled(True)
 
     def load_local_versions(self):
       self.version_list.clear()
