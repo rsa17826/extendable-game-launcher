@@ -1,3 +1,4 @@
+import launcher
 import os
 import subprocess, shlex
 
@@ -50,7 +51,7 @@ def gameVersionExists(path, settings) -> bool:
 from PySide6.QtWidgets import QVBoxLayout
 
 
-def addCustomNodes(_self, layout: QVBoxLayout) -> None:
+def addCustomNodes(_self: launcher.Launcher, layout: QVBoxLayout) -> None:
   """
   Args:
     _self: The Launcher instance (to register widgets for saving)
@@ -69,8 +70,6 @@ def addCustomNodes(_self, layout: QVBoxLayout) -> None:
   mapNameInput.setEnabled(_self.settings.loadSpecificMapOnStart)
   layout.addWidget(mapNameInput)
 
-
-import launcher
 
 launcher.run(
   launcher.Config(
