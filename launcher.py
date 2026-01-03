@@ -7,7 +7,7 @@ import time
 import random
 import requests
 import shlex
-from enum import Enum
+from enum import Enum, EnumMeta
 import json
 from PySide6.QtWidgets import (
   QApplication,
@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
   QSpinBox,
   QDialog,
   QGroupBox,
+  QComboBox,
 )
-from enum import Enum
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import (
   QPainter,
@@ -60,17 +60,53 @@ class Statuses(Enum):
   # waitingForDownload = 3
 
 
+from typing import Type
+
+
 @dataclass
 class Config:
+  supportedOs: Type[Enum]
   GH_USERNAME: str
   """github username eg rsa17826"""
   GH_REPO: str
   """github repo name eg vex-plus-plus"""
   getGameLogLocation: Callable
   gameLaunchRequested: Callable
+  """
+Handles the execution of the game binary when the user double-clicks a version.
+
+Args:
+  path (str): The directory containing the specific game version.
+  args (list[str]): Base command-line arguments provided by the launcher.
+  settings: The current settings object containing user-defined flags.
+"""
   getAssetName: Callable
+  """Identifies which file to download from the GitHub Release assets.
+Args:
+  settings (launcher.SettingsData): The current settings object containing user-defined flags
+Returns:
+  str: the name of the asset to download from gh
+"""
   gameVersionExists: Callable
+  """
+Validation check to see if a folder contains a valid installation.
+Used by the launcher to decide if a version is 'Local' (Run) or 'Online' (Download).
+
+Args:
+  path (str): path to check
+  settings (launcher.SettingsData): The current settings object containing user-defined flags
+
+Returns:
+  bool: return true if the path has a game in it
+"""
   addCustomNodes: Callable
+  """
+Injects custom UI elements into the 'Local Settings' section of the Launcher.
+
+Args:
+  _self: Reference to the Launcher instance to use its helper methods (newCheckbox, etc.)
+  layout: The layout where these widgets will be added.
+"""
   WINDOW_TITLE: str = "Default Launcher"
   """what to set the launchers title to"""
   USE_HARD_LINKS: bool = False
@@ -383,6 +419,8 @@ class Launcher(QWidget):
         value = widget.isChecked()
       elif isinstance(widget, QSpinBox):
         value = widget.value()
+      elif isinstance(widget, QComboBox):
+        value = widget.currentData()
       else:
         continue
 
@@ -417,13 +455,18 @@ class Launcher(QWidget):
 
     for key, value in combined.items():
       widget = self.widgetsToSave.get(key)
-      if widget:
-        if isinstance(widget, QLineEdit):
-          widget.setText(str(value))
-        elif isinstance(widget, QCheckBox):
-          widget.setChecked(bool(value))
-        elif isinstance(widget, QSpinBox):
-          widget.setValue(int(value))
+      try:
+        if widget:
+          if isinstance(widget, QLineEdit):
+            widget.setText(str(value))
+          elif isinstance(widget, QCheckBox):
+            widget.setChecked(bool(value))
+          elif isinstance(widget, QSpinBox):
+            widget.setValue(int(value))
+          elif isinstance(widget, QComboBox):
+            widget.setCurrentIndex(value)
+      except Exception as e:
+        print("error loading value for ", key, e)
 
   def closeEvent(self, event):
     self.saveUserSettings()
@@ -502,6 +545,7 @@ class Launcher(QWidget):
           path,
           shlex.split(self.settings.extraGameArgs) + args,
           self.settings,
+          self.settings.selectedOs,
         )
         f.write(
           os.path.join(self.GAME_ID, "launcherData/lastRanVersion.txt"),
@@ -526,7 +570,8 @@ class Launcher(QWidget):
         (
           a
           for a in release.get("assets", [])
-          if a["name"] == self.config.getAssetName(self.settings)
+          if a["name"]
+          == self.config.getAssetName(self.settings, self.settings.selectedOs)
         ),
         None,
       )
@@ -635,7 +680,7 @@ class Launcher(QWidget):
       for dirname in os.listdir(self.VERSIONS_DIR):
         full_path = os.path.join(self.VERSIONS_DIR, dirname)
         if os.path.isdir(full_path) and self.config.gameVersionExists(
-          full_path, self.settings
+          full_path, self.settings, self.settings.selectedOs
         ):
           all_items_data.append(
             {
@@ -714,7 +759,9 @@ class Launcher(QWidget):
       if not os.path.isdir(full_path):
         continue
 
-      if not self.config.gameVersionExists(full_path, self.settings):
+      if not self.config.gameVersionExists(
+        full_path, self.settings, self.settings.selectedOs
+      ):
         continue
 
       self.addVersionItem(version=dirname, status=Statuses.local, path=full_path)
@@ -1003,9 +1050,7 @@ class Launcher(QWidget):
         lambda: self.startFetch(max_pages=self.settings.maxPagesOnLoad),
       )
     )
-    fetchBtnRow.addWidget(
-      self.newButton("Sync Full History", self.startFullFetch)
-    )
+    fetchBtnRow.addWidget(self.newButton("Sync Full History", self.startFullFetch))
     globalLayout.addLayout(fetchBtnRow)
     globalLayout.addWidget(
       self.newButton(
@@ -1024,6 +1069,12 @@ class Launcher(QWidget):
       self.newLabel(
         "GitHub PAT (Optional):",
         self.newLineEdit("GitHub PAT (Optional)", "githubPat", password=True),
+      )
+    )
+    globalLayout.addLayout(
+      self.newLabel(
+        "Current Os:",
+        self.newSelectBox(self.config.supportedOs, 0, "selectedOs"),
       )
     )
 
@@ -1111,6 +1162,33 @@ class Launcher(QWidget):
 
     node.textChanged.connect(lambda v: setattr(self.settings, saveId, v))
     setattr(self.settings, saveId, "")
+
+    self.widgetsToSave[saveId] = node
+    return node
+
+  def newSelectBox(
+    self,
+    values: Type[Enum] | list[tuple[str, Any]] | dict[str, Any],
+    default_value,
+    saveId,
+  ):
+    node = QComboBox()
+
+    if isinstance(values, EnumMeta):
+      for thing in values:
+        node.addItem(thing.name, thing.value)
+    elif isinstance(values, list):
+      for thing in values:
+        node.addItem(thing[0], thing[1])
+    elif isinstance(values, dict):
+      for k, v in values.items():
+        node.addItem(k, v)
+
+    node.setCurrentIndex(default_value)
+    node.currentIndexChanged.connect(
+      lambda: setattr(self.settings, saveId, node.currentData())
+    )
+    setattr(self.settings, saveId, default_value)
 
     self.widgetsToSave[saveId] = node
     return node

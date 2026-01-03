@@ -6,72 +6,61 @@ import launcher
 import os
 import subprocess, shlex
 from PySide6.QtWidgets import QVBoxLayout
+from enum import Enum
+
+
+class supportedOs(Enum):
+  windows = 0
+  linux = 1
 
 
 def getGameLogLocation():
   return ""
 
 
-def gameLaunchRequested(path, args, settings: launcher.SettingsData) -> None:
-  """
-  Handles the execution of the game binary when the user double-clicks a version.
-
-  Args:
-    path (str): The directory containing the specific game version.
-    args (list[str]): Base command-line arguments provided by the launcher.
-    settings: The current settings object containing user-defined flags.
-  """
+def gameLaunchRequested(
+  path, args, settings: launcher.SettingsData, selectedOs: supportedOs
+) -> None:
   if settings.loadSpecificMapOnStart:
     args += ["--loadMap", settings.nameOfMapToLoad]
 
-  exe = os.path.join(path, "vex.exe")
-  if os.path.isfile(exe):
-    subprocess.Popen([exe] + args, cwd=path)
+  match selectedOs:
+    case supportedOs.windows:
+      exe = os.path.join(path, "vex.exe")
+      if os.path.isfile(exe):
+        subprocess.Popen([exe] + args, cwd=path)
 
-  exe = os.path.join(path, "windows/vex.exe")
-  if os.path.isfile(exe):
-    subprocess.Popen([exe] + args, cwd=path)
+      exe = os.path.join(path, "windows/vex.exe")
+      if os.path.isfile(exe):
+        subprocess.Popen([exe] + args, cwd=path)
+    case supportedOs.linux:
+      exe = os.path.join(path, "vex.sh")
+      if os.path.isfile(exe):
+        subprocess.Popen([exe] + args, cwd=path)
 
 
 def getAssetName(settings: launcher.SettingsData) -> str:
-  """Identifies which file to download from the GitHub Release assets.
-  Args:
-    settings (launcher.SettingsData): The current settings object containing user-defined flags
-  Returns:
-    str: the name of the asset to download from gh
-  """
   return "windows.zip"
 
 
-def gameVersionExists(path, settings: launcher.SettingsData) -> bool:
-  """
-  Validation check to see if a folder contains a valid installation.
-  Used by the launcher to decide if a version is 'Local' (Run) or 'Online' (Download).
-
-  Args:
-    path (str): path to check
-    settings (launcher.SettingsData): The current settings object containing user-defined flags
-
-  Returns:
-    bool: return true if the path has a game in it
-  """
-
+def gameVersionExists(
+  path, settings: launcher.SettingsData, selectedOs: supportedOs
+) -> bool:
   def isfile(p):
     return os.path.isfile(os.path.join(path, p))
 
-  return (isfile("vex.exe") and isfile("vex.pck")) or (
-    isfile("windows/vex.exe") and isfile("windows/vex.pck")
-  )
+  match selectedOs:
+    case supportedOs.windows:
+      return (isfile("vex.exe") and isfile("vex.pck")) or (
+        isfile("windows/vex.exe") and isfile("windows/vex.pck")
+      )
+    case supportedOs.linux:
+      return isfile("vex.sh") and isfile("vex.pck")
 
 
-def addCustomNodes(_self: launcher.Launcher, layout: QVBoxLayout) -> None:
-  """
-  Injects custom UI elements into the 'Local Settings' section of the Launcher.
-
-  Args:
-    _self: Reference to the Launcher instance to use its helper methods (newCheckbox, etc.)
-    layout: The layout where these widgets will be added.
-  """
+def addCustomNodes(
+  _self: launcher.Launcher, layout: QVBoxLayout
+) -> None:
   mapNameInput = _self.newLineEdit('Enter map name or "NEWEST"', "nameOfMapToLoad")
 
   layout.addWidget(
@@ -99,5 +88,6 @@ launcher.run(
     getAssetName=getAssetName,
     gameVersionExists=gameVersionExists,
     addCustomNodes=addCustomNodes,
+    supportedOs=supportedOs,
   )
 )
