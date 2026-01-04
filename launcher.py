@@ -925,6 +925,7 @@ class Launcher(QWidget):
 
   def __init__(self, config: Config):
     super().__init__()
+    self.releaseFetchingThread = None
     self.config = config
     self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
     self.settings = SettingsData()
