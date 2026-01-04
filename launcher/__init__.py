@@ -44,6 +44,8 @@ import math
 
 import hashlib
 
+LAUNCHER_START_PATH = os.path.abspath(os.path.dirname(__file__))
+
 OFFLINE = "offline" in sys.argv
 
 LOCAL_COLOR = Qt.GlobalColor.green
@@ -53,7 +55,6 @@ MISSING_COLOR = Qt.GlobalColor.gray
 MAIN_LOADING_COLOR = (0, 210, 255)
 UNKNOWN_TIME_LOADING_COLOR = (255, 108, 0)
 
-os.chdir(os.path.dirname(__file__))
 
 class Statuses(Enum):
   local = 0
@@ -597,7 +598,7 @@ class Launcher(QWidget):
           self.settings.selectedOs,
         )
         f.write(
-          os.path.join(self.GAME_ID, "launcherData/lastRanVersion.txt"),
+          os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/lastRanVersion.txt"),
           data.get("version"),
         )
         if self.settings.closeOnLaunch:
@@ -720,7 +721,7 @@ class Launcher(QWidget):
     if not self.versionList:
       return
     f.write(
-      os.path.join(self.GAME_ID, "launcherData/cache/releases.json"),
+      os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/cache/releases.json"),
       json.dumps(self.foundReleases),
     )
     all_items_data = []
@@ -818,7 +819,7 @@ class Launcher(QWidget):
   def sortVersions(self, versions_data):
 
     last_ran = f.read(
-      os.path.join(self.GAME_ID, "launcherData/lastRanVersion.txt")
+      os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/lastRanVersion.txt")
     ).strip()
 
     def getSortKey(item):
@@ -935,7 +936,7 @@ class Launcher(QWidget):
     self.downloadQueue = []
     self.setWindowTitle(config.WINDOW_TITLE)
     self.setFixedSize(420, 600)
-    self.setStyleSheet(f.read("./main.css"))
+    self.setStyleSheet(f.read(os.path.join(LAUNCHER_START_PATH, "main.css")))
     self.localKeys = ["extraGameArgs"]
     self.GAME_ID = re.sub(
       r"_{2,}",
@@ -946,14 +947,20 @@ class Launcher(QWidget):
     ).strip()
     self.VERSIONS_DIR = os.path.join(self.GAME_ID, "versions")
     self.API_URL = f"https://api.github.com/repos/{self.config.GH_USERNAME}/{self.config.GH_REPO}/releases"
-    os.makedirs("./launcherData", exist_ok=True)
-    self.GLOBAL_SETTINGS_FILE = "./launcherData/launcherSettings.json"
-    self.LOCAL_SETTINGS_FILE = os.path.join(
-      self.GAME_ID, "launcherData/launcherSettings.json"
+    os.makedirs(
+      os.path.join(LAUNCHER_START_PATH, "launcherData"), exist_ok=True
     )
-    os.makedirs(os.path.join(self.GAME_ID, "launcherData/cache"), exist_ok=True)
+    self.GLOBAL_SETTINGS_FILE = os.path.join(
+      LAUNCHER_START_PATH, "launcherData/launcherSettings.json"
+    )
+    self.LOCAL_SETTINGS_FILE = os.path.join(
+      LAUNCHER_START_PATH,
+      self.GAME_ID,
+      "launcherData/launcherSettings.json",
+    )
+    os.makedirs(os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/cache"), exist_ok=True)
     if config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
-      os.makedirs(os.path.join(self.GAME_ID, "gameData"), exist_ok=True)
+      os.makedirs(os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "gameData"), exist_ok=True)
 
     main_layout = QVBoxLayout(self)
 
@@ -981,7 +988,7 @@ class Launcher(QWidget):
     main_layout.addWidget(self.newButton("Settings", self.openSettings))
 
     self.foundReleases = json.loads(
-      f.read(os.path.join(self.GAME_ID, "launcherData/cache/releases.json"), "[]")
+      f.read(os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/cache/releases.json"), "[]")
     )
     self.updateVersionList()
     if not OFFLINE:
