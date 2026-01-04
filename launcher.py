@@ -420,6 +420,8 @@ class Launcher(QWidget):
         value = widget.value()
       elif isinstance(widget, QComboBox):
         value = widget.currentData()
+        if widget.usesEnum:  # type: ignore
+          value = value.value
       else:
         continue
 
@@ -463,6 +465,14 @@ class Launcher(QWidget):
           elif isinstance(widget, QSpinBox):
             widget.setValue(int(value))
           elif isinstance(widget, QComboBox):
+            # don't error when node has only one index - might be useful
+            try:
+              # try to make sure that the change event is sent as setCurrentIndex donesnt send it if current index is same
+              idx = widget.currentIndex()
+              if idx == value:
+                widget.setCurrentIndex(1 if idx == 0 else 0)
+            except:
+              pass
             widget.setCurrentIndex(value)
       except Exception as e:
         print("error loading value for ", key, e)
@@ -949,6 +959,7 @@ class Launcher(QWidget):
     if result == QDialog.DialogCode.Accepted:
       print("Saving settings...")
       self.saveUserSettings()
+      self.updateVersionList()
     else:
       print("Changes discarded. Reverting UI...")
       self.loadUserSettings()
@@ -1173,16 +1184,18 @@ class Launcher(QWidget):
   ):
     node = QComboBox()
 
+    node.usesEnum = False  # type: ignore
     if isinstance(values, EnumMeta):
+      node.usesEnum = True  # type: ignore
+      node.usedEnum = values  # type: ignore
       for thing in values:
-        node.addItem(thing.name, thing.value)
+        node.addItem(thing.name, thing)
     elif isinstance(values, list):
       for thing in values:
         node.addItem(thing[0], thing[1])
     elif isinstance(values, dict):
       for k, v in values.items():
         node.addItem(k, v)
-
     node.setCurrentIndex(default_value)
     node.currentIndexChanged.connect(
       lambda: setattr(self.settings, saveId, node.currentData())
