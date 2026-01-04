@@ -108,7 +108,7 @@ Args:
   _self: Reference to the Launcher instance to use its helper methods (newCheckbox, etc.)
   layout: The layout where these widgets will be added.
 """
-  WINDOW_TITLE: str = "Default Launcher"
+  WINDOW_TITLE: str = "No Window Title Has Been Set"
   """what to set the launchers title to"""
   USE_HARD_LINKS: bool = False
   """if true will scan all new version downloads and check to see if any files are the same between different versions and replace the new files with hardlinks instead"""
@@ -925,7 +925,7 @@ class Launcher(QWidget):
 
   def __init__(self, config: Config):
     super().__init__()
-    self.releaseFetchingThread = None
+    self.releaseFetchingThread: Any = None
     self.config = config
     self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
     self.settings = SettingsData()
@@ -1137,12 +1137,6 @@ class Launcher(QWidget):
         False,
       )
     )
-    groupLayout.addLayout(
-      self.newLabel(
-        "Current Os:",
-        self.newSelectBox(self.config.supportedOs, 0, "selectedOs"),
-      )
-    )
 
     groupBox.setLayout(groupLayout)
     outerLayout.addWidget(groupBox)
@@ -1150,7 +1144,12 @@ class Launcher(QWidget):
     # region local
     groupBox = QGroupBox(f"Local Settings ({self.config.GH_REPO})")
     groupLayout = QVBoxLayout()
-
+    groupLayout.addLayout(
+      self.newLabel(
+        "Current Os:",
+        self.newSelectBox(self.config.supportedOs, 0, "selectedOs"),
+      )
+    )
     groupLayout.addLayout(
       self.newLabel(
         "Extra Game Args:",
@@ -1158,26 +1157,36 @@ class Launcher(QWidget):
         False,
       )
     )
+    self.loadUserSettings()
     if self.config.getGameLogLocation(self.settings.selectedOs, self.GAME_ID):
       groupLayout.addWidget(
         self.newButton(
           "Open Game Logs",
           lambda: QDesktopServices.openUrl(
             QUrl.fromLocalFile(
-              os.path.abspath(self.config.getGameLogLocation(self.settings.selectedOs, self.GAME_ID))
+              os.path.abspath(
+                self.config.getGameLogLocation(
+                  self.settings.selectedOs, self.GAME_ID
+                )
+              )
             )
           ),
         )
       )
-    if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
-      groupLayout.addWidget(
-        self.newButton(
-          "Open Game Data Folder",
-          lambda: QDesktopServices.openUrl(
-            QUrl.fromLocalFile(os.path.abspath(os.path.join(self.GAME_ID, "gameData")))
-          ),
-        )
+    groupLayout.addWidget(
+      self.newButton(
+        "Open Game Data Folder",
+        lambda: QDesktopServices.openUrl(
+          QUrl.fromLocalFile(
+            os.path.abspath(
+              os.path.join(self.GAME_ID, "gameData")
+              if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
+              else self.GAME_ID
+            )
+          )
+        ),
       )
+    )
     if self.config.addCustomNodes:
       lastWidgetCount = len(self.widgetsToSave)
       self.config.addCustomNodes(self, groupLayout)
@@ -1289,3 +1298,7 @@ def run(config: Config):
   window.show()
 
   sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+  import example
