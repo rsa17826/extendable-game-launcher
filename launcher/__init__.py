@@ -598,7 +598,15 @@ class Launcher(QWidget):
           self.settings.selectedOs,
         )
         f.write(
-          os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/lastRanVersion.txt"),
+          os.path.join(
+            (
+              LAUNCHER_START_PATH
+              if self.settings.centralGameDataLocations
+              else ""
+            ),
+            self.GAME_ID,
+            "launcherData/lastRanVersion.txt",
+          ),
           data.get("version"),
         )
         if self.settings.closeOnLaunch:
@@ -721,7 +729,11 @@ class Launcher(QWidget):
     if not self.versionList:
       return
     f.write(
-      os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/cache/releases.json"),
+      os.path.join(
+        LAUNCHER_START_PATH if self.settings.centralGameDataLocations else "",
+        self.GAME_ID,
+        "launcherData/cache/releases.json",
+      ),
       json.dumps(self.foundReleases),
     )
     all_items_data = []
@@ -819,7 +831,11 @@ class Launcher(QWidget):
   def sortVersions(self, versions_data):
 
     last_ran = f.read(
-      os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/lastRanVersion.txt")
+      os.path.join(
+        LAUNCHER_START_PATH if self.settings.centralGameDataLocations else "",
+        self.GAME_ID,
+        "launcherData/lastRanVersion.txt",
+      )
     ).strip()
 
     def getSortKey(item):
@@ -945,11 +961,13 @@ class Launcher(QWidget):
         r"[^\w\- ]", "_", f"{self.config.GH_USERNAME} - {self.config.GH_REPO}"
       ),
     ).strip()
-    self.VERSIONS_DIR = os.path.join(self.GAME_ID, "versions")
-    self.API_URL = f"https://api.github.com/repos/{self.config.GH_USERNAME}/{self.config.GH_REPO}/releases"
-    os.makedirs(
-      os.path.join(LAUNCHER_START_PATH, "launcherData"), exist_ok=True
+    self.VERSIONS_DIR = os.path.join(
+      LAUNCHER_START_PATH if self.settings.centralGameDataLocations else "",
+      self.GAME_ID,
+      "versions",
     )
+    self.API_URL = f"https://api.github.com/repos/{self.config.GH_USERNAME}/{self.config.GH_REPO}/releases"
+    os.makedirs(os.path.join(LAUNCHER_START_PATH, "launcherData"), exist_ok=True)
     self.GLOBAL_SETTINGS_FILE = os.path.join(
       LAUNCHER_START_PATH, "launcherData/launcherSettings.json"
     )
@@ -958,9 +976,27 @@ class Launcher(QWidget):
       self.GAME_ID,
       "launcherData/launcherSettings.json",
     )
-    os.makedirs(os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/cache"), exist_ok=True)
+    os.makedirs(
+      os.path.join(
+        LAUNCHER_START_PATH if self.settings.centralGameDataLocations else "",
+        self.GAME_ID,
+        "launcherData/cache",
+      ),
+      exist_ok=True,
+    )
     if config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
-      os.makedirs(os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "gameData"), exist_ok=True)
+      os.makedirs(
+        os.path.join(
+          (
+            LAUNCHER_START_PATH
+            if self.settings.centralGameDataLocations
+            else ""
+          ),
+          self.GAME_ID,
+          "gameData",
+        ),
+        exist_ok=True,
+      )
 
     main_layout = QVBoxLayout(self)
 
@@ -988,7 +1024,18 @@ class Launcher(QWidget):
     main_layout.addWidget(self.newButton("Settings", self.openSettings))
 
     self.foundReleases = json.loads(
-      f.read(os.path.join(LAUNCHER_START_PATH, self.GAME_ID, "launcherData/cache/releases.json"), "[]")
+      f.read(
+        os.path.join(
+          (
+            LAUNCHER_START_PATH
+            if self.settings.centralGameDataLocations
+            else ""
+          ),
+          self.GAME_ID,
+          "launcherData/cache/releases.json",
+        ),
+        "[]",
+      )
     )
     self.updateVersionList()
     if not OFFLINE:
@@ -1169,13 +1216,9 @@ class Launcher(QWidget):
       groupLayout.addWidget(
         self.newButton(
           "Open Game Logs",
-          lambda: QDesktopServices.openUrl(
-            QUrl.fromLocalFile(
-              os.path.abspath(
-                self.config.getGameLogLocation(
-                  self.settings.selectedOs, self.GAME_ID
-                )
-              )
+          lambda: self.openFile(
+            self.config.getGameLogLocation(
+              self.settings.selectedOs, self.GAME_ID
             )
           ),
         )
@@ -1183,14 +1226,10 @@ class Launcher(QWidget):
     groupLayout.addWidget(
       self.newButton(
         "Open Game Data Folder",
-        lambda: QDesktopServices.openUrl(
-          QUrl.fromLocalFile(
-            os.path.abspath(
-              os.path.join(self.GAME_ID, "gameData")
-              if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
-              else self.GAME_ID
-            )
-          )
+        lambda: self.openFile(
+          os.path.join(self.GAME_ID, "gameData")
+          if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
+          else self.GAME_ID
         ),
       )
     )
@@ -1215,6 +1254,9 @@ class Launcher(QWidget):
     bottom_btn_layout.addWidget(done_btn)
     outerLayout.addLayout(bottom_btn_layout)
     # endregion
+
+  def openFile(self, p):
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(p)))
 
   def newSpinBox(self, min_val, max_val, default, saveId, width=60):
     node = QSpinBox()

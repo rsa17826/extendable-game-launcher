@@ -32,13 +32,21 @@ def gameVersionExists(
   return False
 
 
+import os
+
+
 def addCustomNodes(_self: launcher.Launcher, layout: QVBoxLayout) -> None:
-  return
+  layout.addWidget(
+    _self.newButton(
+      "open example file location",
+      lambda: _self.openFile(os.path.dirname(__file__)),
+    )
+  )
 
 
 launcher.run(
   launcher.Config(
-    WINDOW_TITLE="You've Ran the Wrong File",
+    WINDOW_TITLE="Example File",
     CAN_USE_CENTRAL_GAME_DATA_FOLDER=False,
     GH_USERNAME="",
     GH_REPO="",
