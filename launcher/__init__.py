@@ -1035,6 +1035,7 @@ class Launcher(QWidget):
 
     main_layout.addWidget(self.newButton("Settings", self.openSettings))
 
+    print(self.config.configs, self.config)
     if self.config.configs is not None:
       self.VERSIONS_DIR = "///"
       self.foundReleases = list(
@@ -1409,44 +1410,45 @@ def run(config: Config):
 
 
 modules = {}
-
+_is_selector_loading=False
 
 def loadConfig(config: Config):
   # 1. Get the actual main module (the one running the loop)
   main_app = sys.modules["__main__"]
-
   # 2. Check if the main app has the 'modules' list (meaning we are in the Selector)
-  if hasattr(main_app, "modules") and isinstance(main_app.modules, dict):
+  # _is_selector_loading is for if ran like `launcher`
+  # hasattr(main_app, "modules") and isinstance(main_app.modules, dict) is for if ran like `python ./__init__.py`
+  if _is_selector_loading or (hasattr(main_app, "modules") and isinstance(main_app.modules, dict)):
     # We are inside the selector loop!
-
     # Use 'inspect' to automatically find the name of the file calling this function
     caller_frame = inspect.stack()[1]
     caller_filename = caller_frame.filename
     module_name = Path(caller_filename).stem
 
     # Register the config into the MAIN list
-    main_app.modules[module_name] = config
+    if _is_selector_loading:
+      modules[module_name] = config
+    else:
+      main_app.modules[module_name] = config
   else:
     # We are NOT in the selector (User ran "python mygame.py" directly)
     run(config)
 
-
-if __name__ == "__main__":
+def findAllLaunchables():
+  global selectorConfig, _is_selector_loading
   import importlib
-
+  _is_selector_loading = True
   sys.path.append(os.path.abspath("."))
   print("Current Working Directory:", os.getcwd())
 
-  apiUrls = []
   for filename in os.listdir():
     if filename.endswith(".py") and filename != "__init__.py":
       module_name = filename[:-3]
-      module = importlib.import_module(module_name)
+      importlib.import_module(module_name)
 
   class supportedOs(Enum):
     windows = 0
     linux = 1
-
   selectorConfig = Config(
     WINDOW_TITLE="launcher selector",
     CAN_USE_CENTRAL_GAME_DATA_FOLDER=False,
@@ -1456,6 +1458,9 @@ if __name__ == "__main__":
     configs=modules,
   )
   run(selectorConfig)
+
+if __name__ == "__main__":
+  findAllLaunchables()
 # LAUNCHER_START_PATH
 #             if True
 #             else ""
