@@ -728,7 +728,7 @@ class Launcher(QWidget):
   def updateVersionList(self):
     if not self.versionList:
       return
-    if self.GAME_ID != "_":
+    if self.GAME_ID != "-":
       try:
         f.write(
           os.path.join(
@@ -1035,7 +1035,6 @@ class Launcher(QWidget):
 
     main_layout.addWidget(self.newButton("Settings", self.openSettings))
 
-    print(self.config.configs, self.config)
     if self.config.configs is not None:
       self.VERSIONS_DIR = "///"
       self.foundReleases = list(

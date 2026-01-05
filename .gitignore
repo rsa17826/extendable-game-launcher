@@ -10,3 +10,4 @@ vex++.py
 -
 *.egg-info
 build
+*.exe
