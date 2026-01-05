@@ -1,3 +1,4 @@
+import shutil
 import inspect
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Any
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
   QDialog,
   QGroupBox,
   QComboBox,
+  QMenu,
 )
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import (
@@ -52,6 +54,7 @@ LAUNCHER_START_PATH = os.path.abspath(os.path.dirname(__file__))
 OFFLINE = "offline" in sys.argv
 
 LOCAL_COLOR = Qt.GlobalColor.green
+LOCAL_ONLY_COLOR = Qt.GlobalColor.yellow
 ONLINE_COLOR = Qt.GlobalColor.cyan
 MISSING_COLOR = Qt.GlobalColor.gray
 
@@ -64,11 +67,20 @@ class Statuses(Enum):
   online = 1
   gameSelector = 2
   loadingInfo = 3
+  localOnly = 4
   # downloading = 2
   # waitingForDownload = 3
 
 
 from typing import Type
+
+
+@dataclass
+class ItemListData:
+  path: str | None
+  release: Dict[Any, Any] | None
+  status: Statuses
+  version: str
 
 
 @dataclass
@@ -78,6 +90,17 @@ class Config:
   """github username eg rsa17826"""
   GH_REPO: str
   """github repo name eg vex-plus-plus"""
+  LAUNCHER_ASSET_NAME: str = ""
+  """Identifies which file to download from the GitHub Release assets for updating the launcher"""
+  addContextMenuOptions: Callable = lambda *a: None
+  """
+Injects custom actions into the right-click menu of a version item.
+
+Args:
+  _self: Reference to the Launcher instance.
+  menu: The QMenu object being constructed.
+  data: The metadata dictionary of the selected version (version, status, path, etc.).
+"""
   getGameLogLocation: Callable = lambda *a: ""
   gameLaunchRequested: Callable = lambda *a: None
   """
@@ -391,7 +414,7 @@ def updateLauncher():
 
   # Set the repository URL and the local directory where the script is located
   repo_url = "https://github.com/rsa17826/extendable-game-launcher.git"
-  local_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+  local_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
   # Check if the directory is a valid Git repository
   def is_git_repo(path):
@@ -437,12 +460,12 @@ class Launcher(QWidget):
 
     item.setData(
       Qt.ItemDataRole.UserRole,
-      {
-        "version": version,
-        "status": status,
-        "path": path,
-        "release": release,
-      },
+      ItemListData(
+        version=version,
+        status=status,
+        path=path,
+        release=release,
+      ),
     )
 
   def saveUserSettings(self):
@@ -581,16 +604,17 @@ class Launcher(QWidget):
           print(f"Error processing {filename}: {e}")
 
   def onVersionDoubleClicked(self, item):
-    data = item.data(Qt.ItemDataRole.UserRole)
+    data: ItemListData = item.data(Qt.ItemDataRole.UserRole)
     if not data:
       return
-    match data["status"]:
+    match data.status:
       case Statuses.gameSelector:
-        run(data["release"]["config"])
+        assert data.release is not None
+        run(data.release["config"])
         self.close()
         return
-      case Statuses.local:
-        path = data.get("path")
+      case Statuses.local | Statuses.localOnly:
+        path = data.path
         if path:
           args = (
             sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
@@ -607,7 +631,7 @@ class Launcher(QWidget):
               self.GAME_ID,
               "launcherData/lastRanVersion.txt",
             ),
-            data.get("version"),
+            data.version,
           )
           if self.settings.closeOnLaunch:
             QApplication.quit()
@@ -616,14 +640,15 @@ class Launcher(QWidget):
       case Statuses.online:
         self.startQueuedDownloadRequest(item.data(Qt.ItemDataRole.UserRole))
 
-  def startQueuedDownloadRequest(self, *versions):
+  def startQueuedDownloadRequest(self, *versions: ItemListData):
     for data in versions:
-      tag = data["version"]
+      tag = data.version
       if tag in self.downloadingVersions:
         return
 
       self.downloadingVersions.append(tag)
-      release = data.get("release")
+      release = data.release
+      assert release is not None
       asset = next(
         (
           a
@@ -642,7 +667,7 @@ class Launcher(QWidget):
       dest_dir = os.path.join(self.VERSIONS_DIR, tag)
       out_file = os.path.join(dest_dir, asset["name"])
 
-      widget = self.activeItemRefs[data["version"]]
+      widget = self.activeItemRefs[data.version]
       assert isinstance(widget, VersionItemWidget)
       widget.setModeUnknownEnd()
 
@@ -747,40 +772,45 @@ class Launcher(QWidget):
         version = rel.get("tag_name")
         if version and version not in local_versions:
           all_items_data.append(
-            {
-              "version": version,
-              "status": Statuses.gameSelector,
-              "path": None,
-              "release": rel,
-            }
+            ItemListData(
+              version=version,
+              status=Statuses.gameSelector,
+              path=None,
+              release=rel,
+            )
           )
     else:
+      version_map = {}
       if os.path.isdir(self.VERSIONS_DIR):
         for dirname in os.listdir(self.VERSIONS_DIR):
           full_path = os.path.join(self.VERSIONS_DIR, dirname)
           if os.path.isdir(full_path) and self.config.gameVersionExists(
             full_path, self.settings, self.settings.selectedOs
           ):
-            all_items_data.append(
-              {
-                "version": dirname,
-                "status": Statuses.local,
-                "path": full_path,
-                "release": None,
-              }
+            thing = ItemListData(
+              version=dirname,
+              status=Statuses.localOnly,
+              path=full_path,
+              release=None,
             )
+            all_items_data.append(thing)
+            version_map[dirname] = thing
             local_versions.add(dirname)
       for rel in self.foundReleases:
         version = rel.get("tag_name")
-        if version and version not in local_versions:
-          all_items_data.append(
-            {
-              "version": version,
-              "status": Statuses.online,
-              "path": None,
-              "release": rel,
-            }
-          )
+        if version:
+          if version in version_map:
+            version_map[version].status = Statuses.local
+            version_map[version].release = rel
+          else:
+            all_items_data.append(
+              ItemListData(
+                version=version,
+                status=Statuses.online,
+                path=None,
+                release=rel,
+              )
+            )
 
     sorted_data = self.sortVersions(all_items_data)
     self.versionList.setUpdatesEnabled(False)
@@ -800,24 +830,26 @@ class Launcher(QWidget):
         item = self.versionList.item(i)
 
         widget = self.versionList.itemWidget(item)
-        self.activeItemRefs[data["version"]] = widget
+        self.activeItemRefs[data.version] = widget
         assert isinstance(widget, VersionItemWidget)
-        if data["version"] in self.downloadingVersions:
+        if data.version in self.downloadingVersions:
           if not widget.noKnownEndPoint:
             widget.setModeUnknownEnd()
-          widget.label.setText(f"Waiting To Download: {data['version']}")
+          widget.label.setText(f"Waiting To Download: {data.version}")
         else:
           widget.setModeDisabled()
-          match data["status"]:
+          match data.status:
             case Statuses.gameSelector:
-              widget.label.setText(f"Start {data['version']} Launcher")
-            case Statuses.local:
-              widget.label.setText(f"Run version {data['version']}")
+              widget.label.setText(f"Start {data.version} Launcher")
+            case Statuses.local | Statuses.localOnly:
+              widget.label.setText(f"Run version {data.version}")
             case Statuses.online:
-              widget.label.setText(f"Download version {data['version']}")
-        match data["status"]:
+              widget.label.setText(f"Download version {data.version}")
+        match data.status:
           case Statuses.local:
             new_color = LOCAL_COLOR
+          case Statuses.localOnly:
+            new_color = LOCAL_ONLY_COLOR
           case Statuses.online:
             new_color = ONLINE_COLOR
           case Statuses.gameSelector:
@@ -847,7 +879,9 @@ class Launcher(QWidget):
       ):
         continue
 
-      self.addVersionItem(version=dirname, status=Statuses.local, path=full_path)
+      self.addVersionItem(
+        version=dirname, status=Statuses.localOnly, path=full_path
+      )
 
   def sortVersions(self, versions_data):
     last_ran = None
@@ -864,9 +898,10 @@ class Launcher(QWidget):
         print("failed reading lastRanVersion", e)
 
     def getSortKey(item):
-      version = item["version"]
-      status = item["status"]
+      version = item.version
+      status = item.status
 
+      is_localOnly = 1 if status == Statuses.localOnly else 0
       is_local = 1 if status == Statuses.local else 0
 
       is_last_ran = 1 if version == last_ran and is_local else 0
@@ -877,6 +912,7 @@ class Launcher(QWidget):
       return (
         is_last_ran,
         (1 if (version in self.downloadingVersions) else 0),
+        is_localOnly,
         is_local,
         version_is_numeric,
         numeric_value if version_is_numeric else version,
@@ -890,10 +926,10 @@ class Launcher(QWidget):
     onlineCount = 0
     for i in range(self.versionList.count()):
       item = self.versionList.item(i)
-      data = item.data(Qt.ItemDataRole.UserRole)
+      data :ItemListData= item.data(Qt.ItemDataRole.UserRole)
       items = []
-      if data and data.get("status") == Statuses.online:
-        version = data.get("version")
+      if data and data.status == Statuses.online:
+        version = data.version
         if version not in self.downloadingVersions:
           items.append(item.data(Qt.ItemDataRole.UserRole))
           onlineCount += 1
@@ -1013,7 +1049,8 @@ class Launcher(QWidget):
       # Style it differently if you want (optional)
       main_layout.addWidget(back_btn)
     self.versionList = QListWidget()
-
+    self.versionList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+    self.versionList.customContextMenuRequested.connect(self.showContextMenu)
     main_layout.addWidget(self.versionList)
     if OFFLINE:
       offline_label = QLabel("OFFLINE MODE")
@@ -1098,6 +1135,29 @@ class Launcher(QWidget):
     else:
       print("Changes discarded. Reverting UI...")
       self.loadUserSettings()
+
+  def showContextMenu(self, pos):
+    item = self.versionList.itemAt(pos)
+    if not item:
+      return
+
+    data: ItemListData = item.data(Qt.ItemDataRole.UserRole)
+    menu = QMenu(self)
+
+    def newAction(text: str, onclick: Callable):
+      run_action = menu.addAction(text)
+      run_action.triggered.connect(onclick)
+
+    if data.path:
+      newAction("Open Folder", lambda: self.openFile(data.path))
+    if data.release:
+      newAction(
+        f"{"Red" if data.status==Statuses.local else "D"}ownload Version {data.version}",
+        lambda: self.startQueuedDownloadRequest(data),
+      )
+    menu.addSeparator()
+    self.config.addContextMenuOptions(self, data, menu, newAction)
+    menu.exec(self.versionList.mapToGlobal(pos))
 
   def startFetch(self, max_pages=1):
     """Standard fetch with a page limit."""
@@ -1409,7 +1469,8 @@ def run(config: Config):
 
 
 modules = {}
-_is_selector_loading=False
+_is_selector_loading = False
+
 
 def loadConfig(config: Config):
   # 1. Get the actual main module (the one running the loop)
@@ -1417,7 +1478,9 @@ def loadConfig(config: Config):
   # 2. Check if the main app has the 'modules' list (meaning we are in the Selector)
   # _is_selector_loading is for if ran like `launcher`
   # hasattr(main_app, "modules") and isinstance(main_app.modules, dict) is for if ran like `python ./__init__.py`
-  if _is_selector_loading or (hasattr(main_app, "modules") and isinstance(main_app.modules, dict)):
+  if _is_selector_loading or (
+    hasattr(main_app, "modules") and isinstance(main_app.modules, dict)
+  ):
     # We are inside the selector loop!
     # Use 'inspect' to automatically find the name of the file calling this function
     caller_frame = inspect.stack()[1]
@@ -1433,9 +1496,11 @@ def loadConfig(config: Config):
     # We are NOT in the selector (User ran "python mygame.py" directly)
     run(config)
 
+
 def findAllLaunchables():
   global selectorConfig, _is_selector_loading
   import importlib
+
   _is_selector_loading = True
   sys.path.append(os.path.abspath("."))
   print("Current Working Directory:", os.getcwd())
@@ -1448,6 +1513,7 @@ def findAllLaunchables():
   class supportedOs(Enum):
     windows = 0
     linux = 1
+
   selectorConfig = Config(
     WINDOW_TITLE="launcher selector",
     CAN_USE_CENTRAL_GAME_DATA_FOLDER=False,
@@ -1457,6 +1523,7 @@ def findAllLaunchables():
     configs=modules,
   )
   run(selectorConfig)
+
 
 if __name__ == "__main__":
   findAllLaunchables()
