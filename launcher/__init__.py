@@ -11,7 +11,7 @@ import requests
 import shlex
 from enum import Enum, EnumMeta
 import json
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
   QApplication,
@@ -96,6 +96,13 @@ class Config:
   """github repo name for launcher updates - only set if launcher updates should use a separate repo"""
   LAUNCHER_ASSET_NAME: str = ""
   """Identifies which file to download from the GitHub Release assets for updating the launcher"""
+  getImage: Callable = lambda *a: ""
+  """
+returns the path to the image that should be shown
+
+Args:
+  version: the game version or the name of the python file.
+"""
   addContextMenuOptions: Callable = lambda *a: None
   """
 Injects custom actions into the right-click menu of a version item.
@@ -251,13 +258,42 @@ class AssetDownloadThread(QThread):
       self.error.emit(str(e))
 
 
+class Cache:
+  lastinp = None
+
+  def __init__(self):
+    self.cache = {}
+
+  def has(self, item):
+    self.lastinp = item
+    return item in self.cache
+
+  def get(self):
+    if not self.has(self.lastinp):
+      raise KeyError(f"No such item {self.lastinp}")
+    thing = self.cache[self.lastinp]
+    del self.lastinp
+    return thing
+
+  def set(self, value):
+    self.cache[self.lastinp] = value
+    del self.lastinp
+    return value
+
+  def clear(self):
+    self.cache = {}
+
+
+iconCache = Cache()
+
+
 class VersionItemWidget(QWidget):
   class ProgressTypes(Enum):
     leftToRight = 0
     both = 1
     rightToLeft = 2
 
-  def __init__(self, text="", color=MISSING_COLOR):
+  def __init__(self, text="", color=MISSING_COLOR, image_source=None):
     super().__init__()
     self.text = text
     self.progress = 0
@@ -266,16 +302,47 @@ class VersionItemWidget(QWidget):
     self.animSpeed = 10
     self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     self.setStyleSheet("background: transparent; border: none;")
-
+    self.image_label = QLabel()
+    self.image_label.setFixedSize(50, 50)  # Set a standard thumbnail size
     self.label = QLabel(text)
-
     color_hex = color.name
     self.label.setStyleSheet(f"background: transparent; color: {color_hex};")
 
-    layout = QHBoxLayout(self)
-    layout.setContentsMargins(5, 0, 5, 0)
-    layout.addWidget(self.label)
-    layout.addStretch()
+    self.qblayout = QHBoxLayout(self)
+    self.icon_label = QLabel()
+    self.icon_label.setFixedSize(32, 32)  # Standard thumbnail size
+    self.icon_label.setScaledContents(True)
+    self.icon_label.hide()
+    self.qblayout.addWidget(self.icon_label)
+    self.qblayout.setContentsMargins(5, 0, 5, 0)
+    self.qblayout.addWidget(self.label)
+    self.qblayout.addStretch()
+    self.setIcon(image_source)
+
+  def setIcon(self, image_source):
+    if not image_source:
+      self.icon_label.clear()
+      return
+    self.icon_label.setScaledContents(True)
+    image_source = os.path.abspath(image_source)
+    pixmap: QPixmap = (
+      iconCache.get()
+      if iconCache.has(image_source)
+      else iconCache.set(QPixmap(image_source))
+    )
+    if not pixmap.isNull():
+      self.icon_label.show()
+      self.icon_label.setPixmap(
+        pixmap.scaled(
+          self.icon_label.size(),
+          Qt.AspectRatioMode.KeepAspectRatio,
+          Qt.TransformationMode.SmoothTransformation,
+        )
+      )
+      self.updateGeometry()
+      self.icon_label.updateGeometry()
+    else:
+      self.icon_label.setText("N/A")
 
   def setModeKnownEnd(self):
     flag = self.noKnownEndPoint
@@ -452,7 +519,9 @@ def updateLauncher():
 
 
 class Launcher(QWidget):
-  def addVersionItem(self, version: str, status: Statuses, path=None, release=None):
+  def addVersionItem(
+    self, version: str, status: Statuses, path=None, release=None, image_path=None
+  ):
     item = QListWidgetItem()
 
     widget = VersionItemWidget("", MISSING_COLOR)
@@ -614,7 +683,7 @@ class Launcher(QWidget):
     match data.status:
       case Statuses.gameSelector:
         assert data.release is not None
-        run(data.release["config"])
+        run(data.release["config"], data.version)
         self.close()
         return
       case Statuses.local | Statuses.localOnly:
@@ -831,11 +900,27 @@ class Launcher(QWidget):
           self.versionList.takeItem(self.versionList.count() - 1)
 
       for i, data in enumerate(sorted_data):
+        assert isinstance(data, ItemListData)
         item = self.versionList.item(i)
 
         widget = self.versionList.itemWidget(item)
         self.activeItemRefs[data.version] = widget
         assert isinstance(widget, VersionItemWidget)
+        if self.settings.showLauncherImages:
+          # if data.status == Statuses.gameSelector:
+          #   assert data.release is not None
+          #   widget.setIcon(data.release["config"].getImage(data.version))
+          # else:
+          #   widget.setIcon(self.config.getImage(data.version))
+          if data.status == Statuses.gameSelector:
+            assert data.release is not None
+            imagePath = checkImageExtension("images/" + data.version)
+          else:
+            imagePath = checkImageExtension("images/" + self.gameName)
+          widget.setIcon(imagePath)
+        else:
+          widget.setIcon(None)
+        item.setSizeHint(widget.sizeHint())
         if data.version in self.downloadingVersions:
           if not widget.noKnownEndPoint:
             widget.setModeUnknownEnd()
@@ -1009,12 +1094,13 @@ class Launcher(QWidget):
   def goBackToSelector(self):
     if selectorConfig:
       # Re-run using the saved selector configuration
-      run(selectorConfig)
+      run(selectorConfig, None)
       # Close the current game-specific launcher
       self.close()
 
-  def __init__(self, config: Config):
+  def __init__(self, config: Config, module_name):
     super().__init__()
+    self.gameName = module_name
     self.releaseFetchingThread: Any = None
     self.config = config
     self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
@@ -1219,9 +1305,6 @@ class Launcher(QWidget):
                 archive.extractall(path=dest_dir)
               os.remove(path)
               extracted = True
-
-            if extracted and self.config.USE_HARD_LINKS:
-              self.deduplicateWithHardlinks(dest_dir)
           except Exception as e:
             print(f"Extraction Error For {tag}: {e}")
 
@@ -1376,6 +1459,11 @@ class Launcher(QWidget):
     groupBox = QGroupBox("Global Settings (All Games)")
     groupLayout = QVBoxLayout()
 
+    groupLayout.addWidget(
+      self.newCheckbox(
+        "Show Game Images in the Launcher", True, "showLauncherImages"
+      )
+    )
     groupLayout.addWidget(
       self.newCheckbox("Fetch Releases on Launcher Start", True, "fetchOnLoad")
     )
@@ -1575,7 +1663,7 @@ class Launcher(QWidget):
 _current_window = None
 
 
-def run(config: Config):
+def run(config: Config, module_name):
   global _current_window
 
   is_new_app = False
@@ -1589,7 +1677,7 @@ def run(config: Config):
   if _current_window is not None:
     _last_geometry = _current_window.saveGeometry()
 
-  _current_window = Launcher(config)
+  _current_window = Launcher(config, module_name)
 
   # Apply the saved geometry before showing the window
   if _last_geometry is not None:
@@ -1608,6 +1696,10 @@ _is_selector_loading = False
 def loadConfig(config: Config):
   # 1. Get the actual main module (the one running the loop)
   main_app = sys.modules["__main__"]
+
+  caller_frame = inspect.stack()[1]
+  caller_filename = caller_frame.filename
+  module_name = Path(caller_filename).stem
   # 2. Check if the main app has the 'modules' list (meaning we are in the Selector)
   # _is_selector_loading is for if ran like `launcher`
   # hasattr(main_app, "modules") and isinstance(main_app.modules, dict) is for if ran like `python ./__init__.py`
@@ -1616,9 +1708,6 @@ def loadConfig(config: Config):
   ):
     # We are inside the selector loop!
     # Use 'inspect' to automatically find the name of the file calling this function
-    caller_frame = inspect.stack()[1]
-    caller_filename = caller_frame.filename
-    module_name = Path(caller_filename).stem
 
     # Register the config into the MAIN list
     if _is_selector_loading:
@@ -1627,7 +1716,7 @@ def loadConfig(config: Config):
       main_app.modules[module_name] = config
   else:
     # We are NOT in the selector (User ran "python mygame.py" directly)
-    run(config)
+    run(config, module_name)
 
 
 def findAllLaunchables():
@@ -1655,7 +1744,16 @@ def findAllLaunchables():
     supportedOs=supportedOs,
     configs=modules,
   )
-  run(selectorConfig)
+  run(selectorConfig, None)
+
+
+def checkImageExtension(p):
+  # Check if any of the extensions exist
+  extensions = ("jpg", "jpeg", "png", "webp")
+  return next(
+    (p + "." + ext for ext in extensions if os.path.isfile(p + "." + ext)),
+    None,
+  )
 
 
 if __name__ == "__main__":
