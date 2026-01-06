@@ -1120,7 +1120,7 @@ class Launcher(QWidget):
     if not OFFLINE:
       if self.settings.checkForLauncherUpdatesWhenOpening:
         updateLauncher()
-    if OFFLINE and self.settings.fetchOnLoad:
+    if not OFFLINE and self.settings.fetchOnLoad:
       self.startFetch(max_pages=self.settings.maxPagesOnLoad)
       self.releaseFetchingThread.error.connect(
         lambda e: print("Release fetch error:", e)
