@@ -794,12 +794,20 @@ class Launcher(QWidget):
           args = (
             sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
           )
+          usesCentralGameDataLocation = (
+            self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
+            and self.settings.useCentralGameDataFolder
+          )
+          gdl = self.gameDataLocation
+          if not usesCentralGameDataLocation:
+            gdl = os.path.join(gdl, str(data.version))
+          os.makedirs(gdl, exist_ok=True)
           self.config.gameLaunchRequested(
             path,
             shlex.split(self.settings.extraGameArgs) + args,
             self.settings,
             self.settings.selectedOs,
-            self.requestedGameDataLocation
+            gdl,
           )
           f.write(
             os.path.join(
@@ -1289,15 +1297,14 @@ class Launcher(QWidget):
       ),
       exist_ok=True,
     )
-    self.requestedGameDataLocation = None
+    self.gameDataLocation = os.path.join(
+      (LAUNCHER_START_PATH if True else ""),
+      self.GAME_ID,
+      "gameData",
+    )
     if config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
-      self.requestedGameDataLocation = os.path.join(
-        (LAUNCHER_START_PATH if True else ""),
-        self.GAME_ID,
-        "gameData",
-      )
       os.makedirs(
-        self.requestedGameDataLocation,
+        self.gameDataLocation,
         exist_ok=True,
       )
 
@@ -1639,6 +1646,16 @@ class Launcher(QWidget):
         False,
       )
     )
+    if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
+      groupLayout.addLayout(
+        self.newLabel(
+          "Extra Game Args:",
+          self.newCheckbox(
+            "Use Central Game Data Folder", True, "useCentralGameDataFolder"
+          ),
+          False,
+        )
+      )
     self.loadUserSettings()
     if self.config.getGameLogLocation(self.settings.selectedOs, self.GAME_ID):
       groupLayout.addWidget(

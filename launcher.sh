@@ -13,6 +13,7 @@ else
   # Install the base package in editable mode and requirements
   pip install -e ./base
   pip install -r ./base/requirements.txt
+  rm -rf ./base/launcher.egg-info
   # Run the Python script
   python ./base/launcher/__init__.py
 fi
