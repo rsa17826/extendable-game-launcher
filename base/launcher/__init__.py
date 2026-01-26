@@ -1833,7 +1833,12 @@ class Launcher(QWidget):
       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
     )
     if msg.exec() == QMessageBox.StandardButton.Yes:
-      os.execl(sys.executable, *sys.argv)
+      script_path = f'"{os.path.abspath(sys.argv[0])}"'
+      executable = f'"{sys.executable}"'
+      
+      # We pass the quoted executable as the path and arg0, 
+      # then the quoted script path, then the rest of the args.
+      os.execl(sys.executable, executable, script_path, *sys.argv[1:])
 
   def openFile(self, p):
     return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(p)))
