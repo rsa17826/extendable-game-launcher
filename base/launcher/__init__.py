@@ -162,6 +162,8 @@ MISSING_COLOR = Qt.GlobalColor.gray
 MAIN_LOADING_COLOR = (0, 210, 255)
 UNKNOWN_TIME_LOADING_COLOR = (255, 108, 0)
 
+launcherUpdateAlreadyChecked = False
+
 
 class Statuses(Enum):
   local = 0
@@ -623,7 +625,7 @@ class Launcher(QWidget):
         ["git", "pull", "--force", "origin", "main"],
         cwd=local_dir,
         capture_output=True,
-        text=True
+        text=True,
       )
 
       if "Already up to date." in result.stdout:
@@ -1313,7 +1315,10 @@ class Launcher(QWidget):
       self.mainProgressBar.setModeDisabled()
       if not OFFLINE:
         if self.settings.checkForLauncherUpdatesWhenOpening:
-          self.updateLauncher()
+          global launcherUpdateAlreadyChecked
+          if not launcherUpdateAlreadyChecked:
+            self.updateLauncher()
+          launcherUpdateAlreadyChecked = True
       return
     self.API_URL = f"https://api.github.com/repos/{self.config.GH_USERNAME}/{self.config.GH_REPO}/releases"
     os.makedirs(os.path.join(LAUNCHER_START_PATH, "launcherData"), exist_ok=True)
@@ -1349,7 +1354,10 @@ class Launcher(QWidget):
     self.updateVersionList()
     if not OFFLINE:
       if self.settings.checkForLauncherUpdatesWhenOpening:
-        self.updateLauncher()
+        global launcherUpdateAlreadyChecked
+        if not launcherUpdateAlreadyChecked:
+          self.updateLauncher()
+        launcherUpdateAlreadyChecked = True
     if not OFFLINE and self.settings.fetchOnLoad:
       self.startFetch(max_pages=self.settings.maxPagesOnLoad)
       self.releaseFetchingThread.error.connect(
