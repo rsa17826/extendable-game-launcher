@@ -1311,6 +1311,9 @@ class Launcher(QWidget):
       )
       self.updateVersionList()
       self.mainProgressBar.setModeDisabled()
+      if not OFFLINE:
+        if self.settings.checkForLauncherUpdatesWhenOpening:
+          self.updateLauncher()
       return
     self.API_URL = f"https://api.github.com/repos/{self.config.GH_USERNAME}/{self.config.GH_REPO}/releases"
     os.makedirs(os.path.join(LAUNCHER_START_PATH, "launcherData"), exist_ok=True)
