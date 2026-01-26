@@ -1159,10 +1159,10 @@ class Launcher(QWidget):
 
   def downloadAllVersions(self):
     onlineCount = 0
+    items = []
     for i in range(self.versionList.count()):
       item = self.versionList.item(i)
       data: ItemListData = item.data(Qt.ItemDataRole.UserRole)
-      items = []
       if data and data.status == Statuses.online:
         version = data.version
         if version not in self.downloadingVersions:
