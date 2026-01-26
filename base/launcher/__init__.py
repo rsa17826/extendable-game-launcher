@@ -232,6 +232,7 @@ Args:
 Returns:
   str: the name of the asset to download from gh
 """
+  onGameVersionDownloadComplete: Callable = lambda *a: None
   gameVersionExists: Callable = lambda *a: False
   """
 Validation check to see if a folder contains a valid installation.
@@ -747,7 +748,10 @@ class Launcher(QWidget):
       return None
 
   def deduplicateWithHardlinks(self, new_version_dir):
-    if not self.config.USE_HARD_LINKS:
+    if not (
+      self.config.USE_HARD_LINKS
+      and self.settings.replaceDuplicateGameFilesWithHardlinks
+    ):
       return
 
     file_map = {}
@@ -1246,7 +1250,6 @@ class Launcher(QWidget):
     self.gameName = module_name
     self.releaseFetchingThread: Any = None
     self.config = config
-    self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
     self.settings = SettingsData()
     self.activeItemRefs = {}
     self.activeDownloads = {}
@@ -1503,6 +1506,22 @@ class Launcher(QWidget):
         self.updateLauncher,
       )
     )
+
+    def toggleAlwaysOnTop(win: Launcher, on):
+      win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on)
+      win.show()
+
+    groupLayout.addWidget(
+      self.newCheckbox(
+        "Keep Launcher Always on Top",
+        False,
+        "keepLauncherAlwaysOnTop",
+        onChange=bind(toggleAlwaysOnTop, self),
+      )
+    )
+
+    # if self.settings.keepLauncherAlwaysOnTop:
+    #   self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
     groupLayout.addLayout(
       self.newLabel(
         "On Restart Required:",
@@ -1598,6 +1617,14 @@ class Launcher(QWidget):
         False,
       )
     )
+    if self.config.USE_HARD_LINKS:
+      groupLayout.addWidget(
+        self.newCheckbox(
+          "Replace Duplicate Game Files with Hardlinks",
+          True,
+          "replaceDuplicateGameFilesWithHardlinks",
+        ),
+      )
     if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
       groupLayout.addWidget(
         self.newCheckbox(
@@ -1763,6 +1790,7 @@ class Launcher(QWidget):
           self.updateVersionList()
           if found["py"]:
             self.showRestartPrompt(f"{tag} updated successfully.")
+          self.config.onGameVersionDownloadComplete(data.path, tag)
 
       dl_thread.progress.connect(on_progress)
       dl_thread.finished.connect(on_finished)
