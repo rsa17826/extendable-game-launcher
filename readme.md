@@ -4,7 +4,9 @@ after the launcher is opened it may look blank if you don't have any launchers l
 
 a sample script can be found [here](https://github.com/rsa17826/vex-plus-plus/blob/main/launcher/vex%2B%2B.py)
 
-when opening the launcher it will look like ![launcher selector img](./_ghImages/launcherSelector.png)
+when opening the launcher it will look like
+
+![launcher selector img](./_ghImages/launcherSelector.png)
 
 to open a game launcher double click on the item when inside a launcher it can look like this
 
