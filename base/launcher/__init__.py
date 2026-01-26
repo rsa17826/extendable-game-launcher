@@ -581,50 +581,52 @@ class SettingsData:
     return None
 
 
-def updateLauncher():
-  import subprocess
-  import os
-  import sys
-
-  # Set the repository URL and the local directory where the script is located
-  repo_url = "https://github.com/rsa17826/extendable-game-launcher.git"
-  local_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
-
-  # Check if the directory is a valid Git repository
-  def is_git_repo(path):
-    return os.path.isdir(os.path.join(path, ".git"))
-
-  # Initialize the Git repository if not already initialized
-  def init_git_repo(path, url):
-    try:
-      print(f"Initializing new Git repository in {path}...")
-      # Run git init to initialize the repo
-      subprocess.check_call(["git", "init"], cwd=path)
-      # Add the remote repository URL
-      subprocess.check_call(["git", "remote", "add", "origin", url], cwd=path)
-      subprocess.check_call(["git", "add", "-A"], cwd=path)
-      subprocess.check_call(["git", "fetch", "origin"], cwd=local_dir)
-      print("Git repository initialized and remote set.")
-    except subprocess.CalledProcessError as e:
-      print("Error initializing repository:", e)
-      sys.exit(1)
-
-  if not is_git_repo(local_dir):
-    print("No .git directory found. Initializing repository...")
-    init_git_repo(local_dir, repo_url)
-
-  try:
-    print("Checking for updates...")
-    subprocess.check_call(["git", "reset", "--hard", "origin/main"], cwd=local_dir)
-    subprocess.check_call(
-      ["git", "pull", "--force", "origin", "main"], cwd=local_dir
-    )
-    print("Update successful!")
-  except subprocess.CalledProcessError as e:
-    print("Error during update:", e)
-
-
 class Launcher(QWidget):
+  def updateLauncher(self):
+    import subprocess
+    import os
+    import sys
+
+    # Set the repository URL and the local directory where the script is located
+    repo_url = "https://github.com/rsa17826/extendable-game-launcher.git"
+    local_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
+
+    # Check if the directory is a valid Git repository
+    def is_git_repo(path):
+      return os.path.isdir(os.path.join(path, ".git"))
+
+    # Initialize the Git repository if not already initialized
+    def init_git_repo(path, url):
+      try:
+        print(f"Initializing new Git repository in {path}...")
+        # Run git init to initialize the repo
+        subprocess.check_call(["git", "init"], cwd=path)
+        # Add the remote repository URL
+        subprocess.check_call(["git", "remote", "add", "origin", url], cwd=path)
+        subprocess.check_call(["git", "add", "-A"], cwd=path)
+        subprocess.check_call(["git", "fetch", "origin"], cwd=local_dir)
+        print("Git repository initialized and remote set.")
+      except subprocess.CalledProcessError as e:
+        print("Error initializing repository:", e)
+        sys.exit(1)
+
+    if not is_git_repo(local_dir):
+      print("No .git directory found. Initializing repository...")
+      init_git_repo(local_dir, repo_url)
+
+    try:
+      print("Checking for updates...")
+      subprocess.check_call(
+        ["git", "reset", "--hard", "origin/main"], cwd=local_dir
+      )
+      subprocess.check_call(
+        ["git", "pull", "--force", "origin", "main"], cwd=local_dir
+      )
+      print("Update successful!")
+      self.showRestartPrompt(f"Launcher updated successfully.")
+    except subprocess.CalledProcessError as e:
+      print("Error during update:", e)
+
   def addVersionItem(
     self, version: str, status: Statuses, path=None, release=None, image_path=None
   ):
@@ -1337,7 +1339,7 @@ class Launcher(QWidget):
     self.updateVersionList()
     if not OFFLINE:
       if self.settings.checkForLauncherUpdatesWhenOpening:
-        updateLauncher()
+        self.updateLauncher()
     if not OFFLINE and self.settings.fetchOnLoad:
       self.startFetch(max_pages=self.settings.maxPagesOnLoad)
       self.releaseFetchingThread.error.connect(
@@ -1383,19 +1385,25 @@ class Launcher(QWidget):
               data,
             ),
           )
-
-    else:
       if data.path:
-        newAction("Open Folder", lambda: self.openFile(data.path))
+        newAction("Open Folder", lambda: self.openFile(os.path.dirname(data.path)))  # type: ignore
         # ???  TODO
         newAction(
-          f"Delete Version {data.version}", lambda: self.openFile(data.path)
+          f"Delete {data.version} Launcher", lambda: os.remove(data.path)  # type: ignore
+        )
+    else:
+      if data.path:
+        newAction("Open Folder", lambda: self.openFile(data.path))  # type: ignore
+        # ???  TODO
+        newAction(
+          f"Delete Version {data.version}", lambda: os.remove(data.path)  # type: ignore
         )
       if data.release:
         newAction(
           f"{"Red" if data.status==Statuses.local else "D"}ownload Version {data.version}",
           lambda: self.startQueuedDownloadRequest(data),
         )
+
     menu.addSeparator()
     self.config.addContextMenuOptions(self, data, menu, newAction)
     menu.exec(self.versionList.mapToGlobal(pos))
@@ -1475,7 +1483,17 @@ class Launcher(QWidget):
     groupLayout.addWidget(
       self.newButton(
         "Update the Launcher Now (Must Have Git Installed)",
-        updateLauncher,
+        self.updateLauncher,
+      )
+    )
+    groupLayout.addLayout(
+      self.newLabel(
+        "On Restart Required:",
+        self.newSelectBox(
+          ["Ask Every Time", "Never Restart", "Always Restart"],
+          0,
+          "onRestartRequired",
+        ),
       )
     )
     groupBox.setLayout(groupLayout)
@@ -1727,7 +1745,7 @@ class Launcher(QWidget):
           shutil.rmtree(dest_dir, ignore_errors=True)
           self.updateVersionList()
           if found["py"]:
-            self.showRestartPrompt(tag)
+            self.showRestartPrompt(f"{tag} updated successfully.")
 
       dl_thread.progress.connect(on_progress)
       dl_thread.finished.connect(on_finished)
@@ -1739,16 +1757,10 @@ class Launcher(QWidget):
     self.activeDownloads[f"meta_{tag}"] = fetcher
     fetcher.start()
 
-  def showRestartPrompt(self, name):
+  def showRestartPrompt(self, text):
     from PySide6.QtWidgets import QMessageBox
 
-    msg = QMessageBox(self)
-    msg.setText(f"{name} updated successfully.")
-    msg.setInformativeText("Restart now to apply changes?")
-    msg.setStandardButtons(
-      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-    )
-    if msg.exec() == QMessageBox.StandardButton.Yes:
+    def restart():
       script_path = f'"{os.path.abspath(sys.argv[0])}"'
       executable = f'"{sys.executable}"'
 
@@ -1756,7 +1768,23 @@ class Launcher(QWidget):
       # then the quoted script path, then the rest of the args.
       os.execl(sys.executable, executable, script_path, *sys.argv[1:])
 
-  def openFile(self, p):
+    print(self.settings.onRestartRequired)
+    match self.settings.onRestartRequired:
+      case 0:
+        msg = QMessageBox(self)
+        msg.setText(text)
+        msg.setInformativeText("Restart now to apply changes?")
+        msg.setStandardButtons(
+          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+          restart()
+      case 1:
+        return
+      case 2:
+        restart()
+
+  def openFile(self, p: str):
     return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(p)))
 
   def newSpinBox(self, min_val, max_val, default, saveId, width=60):
@@ -1814,7 +1842,7 @@ class Launcher(QWidget):
 
   def newSelectBox(
     self,
-    values: Type[Enum] | list[tuple[str, Any]] | dict[str, Any],
+    values: Type[Enum] | list[str] | dict[str, Any] | set[str],
     default_value,
     saveId,
   ):
@@ -1827,8 +1855,10 @@ class Launcher(QWidget):
       for thing in values:
         node.addItem(thing.name, thing)
     elif isinstance(values, list):
+      i = -1
       for thing in values:
-        node.addItem(thing[0], thing[1])
+        i += 1
+        node.addItem(thing, i)
     elif isinstance(values, dict):
       for k, v in values.items():
         node.addItem(k, v)
