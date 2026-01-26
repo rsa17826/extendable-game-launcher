@@ -28,5 +28,7 @@ the versions are sorted by:
 all groups are sorted by largest numbers first
 
 
+to remove a game version or launcher right click on the launcher or game version and press delete
 
-
+![rclick menu](./_ghImages/rclickmenu1.png)
+![rclick menu](./_ghImages/rclickmenu2.png)
