@@ -886,7 +886,6 @@ class Launcher(QWidget):
 
   def processDownloadQueue(self):
     assert isinstance(self.settings.maxConcurrentDls, int)
-    self.downloadQueue = []
     while self.downloadQueue and (
       len(self.activeDownloads) < self.settings.maxConcurrentDls
       or self.settings.maxConcurrentDls == 0
@@ -1574,7 +1573,7 @@ class Launcher(QWidget):
     groupLayout.addLayout(fetchBtnRow)
     groupLayout.addWidget(
       self.newButton(
-        "Download All Game Versions (May Hang for a Bit)",
+        "Download All Game Versions",
         self.downloadAllVersions,
       )
     )
