@@ -1168,7 +1168,8 @@ class Launcher(QWidget):
         if version not in self.downloadingVersions:
           items.append(item.data(Qt.ItemDataRole.UserRole))
           onlineCount += 1
-      self.startQueuedDownloadRequest(*items)
+      if len(items):
+        self.startQueuedDownloadRequest(*items)
 
     if onlineCount > 0:
       print(f"Added {onlineCount} Versions to the Download Queue.")
@@ -1542,7 +1543,7 @@ class Launcher(QWidget):
 
     groupLayout.addWidget(
       self.newCheckbox(
-        "Show Game Images in the Launcher", True, "showLauncherImages"
+        "Show Game Images in the Launcher Selector", True, "showLauncherImages"
       )
     )
     groupLayout.addWidget(
