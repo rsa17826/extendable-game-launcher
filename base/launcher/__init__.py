@@ -1848,7 +1848,6 @@ def run(config: Config, module_name):
   _current_window = Launcher(config, module_name)
 
   # Apply the saved geometry before showing the window
-  print(_last_geometry, "_last_geometry")
   if _last_geometry is not None:
     _current_window.restoreGeometry(_last_geometry)
 
