@@ -4,8 +4,6 @@
 if [ -d "./.venv" ]; then
   # Activate the virtual environment
   source ./.venv/bin/activate
-  # Run the Python script with any passed arguments
-  python ./base/launcher/__init__.py "$@"
 else
   # Create a virtual environment using Python 3.13 (ensure python3.13 is installed)
   python3.13 -m venv .venv
@@ -17,5 +15,5 @@ else
   # Remove egg-info directory
   rm -rf ./base/launcher.egg-info
   # Run the Python script with any passed arguments
-  python ./base/launcher/__init__.py "$@"
 fi
+python ./base/launcher/__init__.py "$@"

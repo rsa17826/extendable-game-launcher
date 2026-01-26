@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
   QGroupBox,
   QComboBox,
   QMenu,
+  QMessageBox,
 )
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import (
@@ -153,6 +154,7 @@ OFFLINE, LAUNCHER_TO_LAUNCH = checkArgs(
 )
 
 LOCAL_COLOR = Qt.GlobalColor.green
+ERROR_COLOR = Qt.GlobalColor.darkRed
 LOCAL_ONLY_COLOR = Qt.GlobalColor.yellow
 ONLINE_COLOR = Qt.GlobalColor.cyan
 MISSING_COLOR = Qt.GlobalColor.gray
@@ -256,6 +258,8 @@ Args:
   """if true will make all game versions appear to be launched from a single dir else will just launch each one from a separate location"""
   configs: Dict[Any, Any] | None = None
   """if true will make all game versions appear to be launched from a single dir else will just launch each one from a separate location"""
+  hadErrorLoading: bool = False
+  errorText: str = ""
 
 
 class f:
@@ -1010,6 +1014,9 @@ class Launcher(QWidget):
         for _ in range(current_count - target_count):
           self.versionList.takeItem(self.versionList.count() - 1)
 
+      if self.gameName is not None:
+        if os.path.isfile("images/" + self.gameName + ".png"):
+          self.setWindowIcon(QIcon("images/" + self.gameName + ".png"))
       for i, data in enumerate(sorted_data):
         assert isinstance(data, ItemListData)
         item = self.versionList.item(i)
@@ -1028,10 +1035,6 @@ class Launcher(QWidget):
             assert data.release is not None
             imagePath = "images/" + data.version + ".png"
             print(imagePath)
-            # imagePath = checkImageExtension("images/" + data.version)
-          else:
-            self.setWindowIcon(QIcon("images/" + self.gameName + ".png"))
-            # imagePath = checkImageExtension("images/" + self.gameName)
           widget.setIcon(imagePath)
         else:
           widget.setIcon(None)
@@ -1044,7 +1047,16 @@ class Launcher(QWidget):
           widget.setModeDisabled()
           match data.status:
             case Statuses.gameSelector:
-              widget.label.setText(f"Start {data.version} Launcher")
+              assert self.config.configs is not None
+              if self.config.configs[data.version].hadErrorLoading:
+                widget.label.setText(
+                  f"ERROR: Error Loading {data.version} Launcher"
+                )
+                widget.label.setToolTip(
+                  self.config.configs[data.version].errorText
+                )
+              else:
+                widget.label.setText(f"Start {data.version} Launcher")
             case Statuses.local | Statuses.localOnly:
               widget.label.setText(f"Run version {data.version}")
             case Statuses.online:
@@ -1057,7 +1069,11 @@ class Launcher(QWidget):
           case Statuses.online:
             new_color = ONLINE_COLOR
           case Statuses.gameSelector:
-            new_color = LOCAL_COLOR
+            assert self.config.configs is not None
+            if self.config.configs[data.version].hadErrorLoading:
+              new_color = ERROR_COLOR
+            else:
+              new_color = LOCAL_COLOR
           case _:
             new_color = MISSING_COLOR
         widget.setLabelColor(new_color)
@@ -1633,6 +1649,12 @@ class Launcher(QWidget):
     # region local
     groupBox = QGroupBox(f"Local Settings ({self.config.GH_REPO})")
     groupLayout = QVBoxLayout()
+    groupLayout.addWidget(
+      self.newButton(
+        "Update " + self.GAME_ID + " Launcher",
+        bind(self.updateSubLauncher),
+      )
+    )
     groupLayout.addLayout(
       self.newLabel(
         "Current Os:",
@@ -1653,13 +1675,15 @@ class Launcher(QWidget):
         ),
       )
     self.loadUserSettings()
-    if self.config.getGameLogLocation(self.settings, self.settings.selectedOs, self.GAME_ID):
+    if self.config.getGameLogLocation(
+      self.settings, self.settings.selectedOs, self.GAME_ID
+    ):
       groupLayout.addWidget(
         self.newButton(
           "Open Game Logs",
           lambda: self.openFile(
-            self.config.getGameLogLocation(self.settings,
-              self.settings.selectedOs, self.GAME_ID
+            self.config.getGameLogLocation(
+              self.settings, self.settings.selectedOs, self.GAME_ID
             )
           ),
         )
@@ -1695,6 +1719,106 @@ class Launcher(QWidget):
     bottom_btn_layout.addWidget(done_btn)
     outerLayout.addLayout(bottom_btn_layout)
     # endregion
+
+  def updateSubLauncher(self):
+    """Triggered from the Settings menu to update the specific game launcher script."""
+    # 1. Identify where to get the update from
+    gh_user = self.config.LAUNCHER_GH_USERNAME or self.config.GH_USERNAME
+    gh_repo = self.config.LAUNCHER_GH_REPO or self.config.GH_REPO
+    asset_name = self.config.LAUNCHER_ASSET_NAME
+
+    if not asset_name:
+      print("No LAUNCHER_ASSET_NAME defined for this config.")
+      return
+
+    api_url = f"https://api.github.com/repos/{gh_user}/{gh_repo}/releases"
+
+    # 2. Fetch the latest release metadata
+    fetcher = self.ReleaseFetchThread(
+      api_url, pat=self.settings.githubPat or None, max_pages=1
+    )
+
+    def on_metadata_fetched(releases):
+      if not releases:
+        print("No releases found to update from.")
+        return
+
+      release = releases[0]
+      asset = next(
+        (a for a in release.get("assets", []) if a["name"] == asset_name), None
+      )
+
+      if not asset:
+        print(f"Could not find asset {asset_name} in the latest release.")
+        return
+
+      # 3. Setup download paths
+      temp_dir = os.path.join(LAUNCHER_START_PATH, "temp_update")
+      os.makedirs(temp_dir, exist_ok=True)
+      download_path = os.path.join(temp_dir, asset_name)
+
+      dl_thread = AssetDownloadThread(
+        asset["browser_download_url"], download_path
+      )
+
+      def on_download_finished(path):
+        try:
+          # 1. Extraction logic
+          if path.endswith(".zip"):
+            with zipfile.ZipFile(path, "r") as zip_ref:
+              zip_ref.extractall(temp_dir)
+          elif path.endswith(".7z"):
+            with py7zr.SevenZipFile(path, mode="r") as archive:
+              archive.extractall(path=temp_dir)
+
+          # 2. Locate and move the file
+          target_file = os.path.abspath(sys.modules[self.gameName].__file__)
+          found = False
+          for root, _, files in os.walk(temp_dir):
+            if f"{self.gameName}.py" in files:
+              new_file_source = os.path.join(root, f"{self.gameName}.py")
+              shutil.move(new_file_source, target_file)
+              found = True
+              break
+
+          if found:
+            # 3. Create the Restart Prompt
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Update Complete")
+            msg.setText(f"Successfully updated {self.gameName}.")
+            msg.setInformativeText(
+              "Would you like to restart the launcher now to apply changes?"
+            )
+            msg.setStandardButtons(
+              QMessageBox.StandardButton.Yes
+              | QMessageBox.StandardButton.No
+            )
+            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+            if msg.exec() == QMessageBox.StandardButton.Yes:
+              # 4. Restart Logic
+              python = sys.executable
+              print(python, *sys.orig_argv)
+              os.execl(python, *sys.orig_argv)
+          else:
+            print(
+              f"Update downloaded but {self.gameName}.py was not found."
+            )
+
+        except Exception as e:
+          print(f"Update failed: {e}")
+        finally:
+          shutil.rmtree(temp_dir, ignore_errors=True)
+
+      dl_thread.finished.connect(on_download_finished)
+      dl_thread.start()
+      # Keep reference to prevent GC
+      self.activeDownloads["launcher_update"] = dl_thread
+
+    fetcher.finished.connect(on_metadata_fetched)
+    fetcher.start()
+    # Keep reference to prevent GC
+    self.activeDownloads["launcher_metadata"] = fetcher
 
   def openFile(self, p):
     return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(p)))
@@ -1845,6 +1969,10 @@ def findAllLaunchables():
   global selectorConfig, _is_selector_loading
   import importlib
 
+  class supportedOs(Enum):
+    windows = 0
+    linux = 1
+
   _is_selector_loading = True
   sys.path.append(os.path.abspath("."))
   print("Current Working Directory:", os.getcwd())
@@ -1852,14 +1980,21 @@ def findAllLaunchables():
   for filename in os.listdir():
     if filename.endswith(".py") and filename != "__init__.py":
       module_name = filename[:-3]
-      importlib.import_module(module_name)
-      if module_name == LAUNCHER_TO_LAUNCH:
-        run(modules[module_name], module_name)
-        return
-
-  class supportedOs(Enum):
-    windows = 0
-    linux = 1
+      try:
+        importlib.import_module(module_name)
+        if module_name == LAUNCHER_TO_LAUNCH:
+          run(modules[module_name], module_name)
+          return
+      except Exception as e:
+        modules[module_name] = Config(
+          WINDOW_TITLE=module_name,
+          GH_USERNAME="",
+          GH_REPO="",
+          supportedOs=supportedOs,
+          hadErrorLoading=True,
+          errorText=f"{e}",
+        )
+        print("error loading launcher", module_name, e)
 
   selectorConfig = Config(
     WINDOW_TITLE="launcher selector",
@@ -1872,13 +2007,13 @@ def findAllLaunchables():
   run(selectorConfig, None)
 
 
-def checkImageExtension(p):
-  # Check if any of the extensions exist
-  extensions = ("jpg", "jpeg", "png", "webp")
-  return next(
-    (p + "." + ext for ext in extensions if os.path.isfile(p + "." + ext)),
-    None,
-  )
+# def checkImageExtension(p):
+#   # Check if any of the extensions exist
+#   extensions = ("jpg", "jpeg", "png", "webp")
+#   return next(
+#     (p + "." + ext for ext in extensions if os.path.isfile(p + "." + ext)),
+#     None,
+#   )
 
 
 if __name__ == "__main__":
