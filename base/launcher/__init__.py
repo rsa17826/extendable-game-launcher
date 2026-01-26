@@ -963,7 +963,7 @@ class Launcher(QWidget):
             ItemListData(
               version=version,
               status=Statuses.gameSelector,
-              path=None,
+              path=rel.get("path"),
               release=rel,
             )
           )
@@ -1297,7 +1297,7 @@ class Launcher(QWidget):
       self.VERSIONS_DIR = "///"
       self.foundReleases = list(
         map(
-          lambda x: {"tag_name": x, "config": config.configs[x]}, config.configs  # type: ignore
+          lambda x: {"tag_name": x, "config": config.configs[x], "path": paths[x]}, config.configs  # type: ignore
         )
       )
       self.updateVersionList()
@@ -1366,118 +1366,6 @@ class Launcher(QWidget):
     data: ItemListData = item.data(Qt.ItemDataRole.UserRole)
     menu = QMenu(self)
 
-    def updateSubLauncher(launcherSettings: Config):
-      # self.startFetch(1, True)
-      releaseFetchingThread = self.ReleaseFetchThread(
-        f"https://api.github.com/repos/{launcherSettings.LAUNCHER_GH_USERNAME or launcherSettings.GH_USERNAME}/{launcherSettings.LAUNCHER_GH_REPO or launcherSettings.GH_REPO}/releases",
-        pat=self.settings.githubPat or None,
-        max_pages=1,
-      )
-      # self.mainProgressBar.setModeUnknownEnd()
-
-      self.config.getAssetName = lambda *a: launcherSettings.LAUNCHER_ASSET_NAME
-
-      def a(releases):
-        # self.mainProgressBar.setModeDisabled()
-        data.release = releases[0]
-        tag = data.version
-        if tag in self.downloadingVersions:
-          return
-
-        self.downloadingVersions.append(tag)
-        release = data.release
-        assert release is not None
-        asset = next(
-          (
-            a
-            for a in release.get("assets", [])
-            if a["name"]
-            == launcherSettings.getAssetName(
-              self.settings, self.settings.selectedOs
-            )
-          ),
-          None,
-        )
-
-        if not asset:
-          print(f"Asset Not Found for {tag}")
-          self.downloadingVersions.remove(tag)
-          return
-
-        dest_dir = os.path.join(
-          os.path.abspath(os.path.join(LAUNCHER_START_PATH, "-")), tag
-        )
-        out_file = os.path.join(dest_dir, asset["name"])
-
-        widget = self.activeItemRefs[data.version]
-        assert isinstance(widget, VersionItemWidget)
-        widget.setModeUnknownEnd()
-        print(asset["browser_download_url"], tag)
-        os.makedirs(dest_dir, exist_ok=True)
-
-        dl_thread = AssetDownloadThread(asset["browser_download_url"], out_file)
-
-        self.activeDownloads[tag] = dl_thread
-
-        def onFinished(path):
-          current_widget = self.activeItemRefs.get(tag)
-          assert isinstance(current_widget, VersionItemWidget)
-          current_widget.label.setText(f"Extracting {tag}...")
-          current_widget.setModeUnknownEnd()
-
-          extracted = False
-          try:
-            if path.endswith(".zip"):
-              with zipfile.ZipFile(path, "r") as zip_ref:
-                zip_ref.extractall(dest_dir)
-              os.remove(path)
-              extracted = True
-            elif path.endswith(".7z"):
-              with py7zr.SevenZipFile(path, mode="r") as archive:
-                archive.extractall(path=dest_dir)
-              os.remove(path)
-              extracted = True
-          except Exception as e:
-            print(f"Extraction Error For {tag}: {e}")
-
-          if tag in self.downloadingVersions:
-            self.downloadingVersions.remove(tag)
-
-          if extracted:
-            print(f"Finished Processing {tag}")
-            self.activeDownloads.pop(tag, None)
-            assert isinstance(current_widget, VersionItemWidget)
-          else:
-            self.activeDownloads.pop(tag, None)
-          for root, dirs, files in os.walk(dest_dir):
-            if data.version + ".py" in files:
-              assert data.path is not None
-              os.remove(data.path)
-              shutil.move(
-                os.path.join(root, data.version + ".py"), data.path
-              )
-              shutil.rmtree(dest_dir)
-              self.updateVersionList()
-              return
-          self.updateVersionList()
-          current_widget = self.activeItemRefs.get(tag)
-          assert isinstance(current_widget, VersionItemWidget)
-          current_widget.label.setText(f"Failed to Update {data.version}")
-          current_widget.setLabelColor(Qt.GlobalColor.red)
-          shutil.rmtree(dest_dir)
-
-        dl_thread.progress.connect(bind(self.handleDownloadProgress, tag))
-        dl_thread.finished.connect(onFinished)
-        dl_thread.error.connect(lambda e: print(f"DL Error {tag}: {e}"))
-        dl_thread.finished.connect(dl_thread.deleteLater)
-        dl_thread.start()
-
-      # store releaseFetchingThread for now to prevent crash
-      self.activeDownloads[data.version] = releaseFetchingThread
-      releaseFetchingThread.finished.connect(a)
-      releaseFetchingThread.finished.connect(releaseFetchingThread.deleteLater)
-      releaseFetchingThread.start()
-
     def newAction(text: str, onclick: Callable):
       run_action = menu.addAction(text)
       run_action.triggered.connect(onclick)
@@ -1487,13 +1375,19 @@ class Launcher(QWidget):
       if self.config.configs is not None:
         print(self.config.configs[data.version].LAUNCHER_ASSET_NAME)
         if self.config.configs[data.version].LAUNCHER_ASSET_NAME:
-          newAction(
-            f"Update {data.version} Launcher",
-            bind(updateSubLauncher, self.config.configs[data.version]),
+          menu.addAction(
+            "Update",
+            bind(
+              self.updateSubLauncher,
+              self.config.configs[data.version],
+              data,
+            ),
           )
+
     else:
       if data.path:
         newAction("Open Folder", lambda: self.openFile(data.path))
+        # ???  TODO
         newAction(
           f"Delete Version {data.version}", lambda: self.openFile(data.path)
         )
@@ -1652,7 +1546,7 @@ class Launcher(QWidget):
     groupLayout.addWidget(
       self.newButton(
         "Update " + self.GAME_ID + " Launcher",
-        bind(self.updateSubLauncher),
+        self.updateSubLauncher,
       )
     )
     groupLayout.addLayout(
@@ -1720,105 +1614,209 @@ class Launcher(QWidget):
     outerLayout.addLayout(bottom_btn_layout)
     # endregion
 
-  def updateSubLauncher(self):
-    """Triggered from the Settings menu to update the specific game launcher script."""
-    # 1. Identify where to get the update from
-    gh_user = self.config.LAUNCHER_GH_USERNAME or self.config.GH_USERNAME
-    gh_repo = self.config.LAUNCHER_GH_REPO or self.config.GH_REPO
-    asset_name = self.config.LAUNCHER_ASSET_NAME
+  # def updateSubLauncher(self):
+  #   """Triggered from the Settings menu to update the specific game launcher script."""
+  #   # 1. Identify where to get the update from
+  #   gh_user = self.config.LAUNCHER_GH_USERNAME or self.config.GH_USERNAME
+  #   gh_repo = self.config.LAUNCHER_GH_REPO or self.config.GH_REPO
+  #   asset_name = self.config.LAUNCHER_ASSET_NAME
 
-    if not asset_name:
-      print("No LAUNCHER_ASSET_NAME defined for this config.")
-      return
+  #   if not asset_name:
+  #     print("No LAUNCHER_ASSET_NAME defined for this config.")
+  #     return
 
-    api_url = f"https://api.github.com/repos/{gh_user}/{gh_repo}/releases"
+  #   api_url = f"https://api.github.com/repos/{gh_user}/{gh_repo}/releases"
 
-    # 2. Fetch the latest release metadata
+  #   # 2. Fetch the latest release metadata
+  #   fetcher = self.ReleaseFetchThread(
+  #     api_url, pat=self.settings.githubPat or None, max_pages=1
+  #   )
+
+  #   def on_metadata_fetched(releases):
+  #     if not releases:
+  #       print("No releases found to update from.")
+  #       return
+
+  #     release = releases[0]
+  #     asset = next(
+  #       (a for a in release.get("assets", []) if a["name"] == asset_name), None
+  #     )
+
+  #     if not asset:
+  #       print(f"Could not find asset {asset_name} in the latest release.")
+  #       return
+
+  #     # 3. Setup download paths
+  #     temp_dir = os.path.join(LAUNCHER_START_PATH, "temp_update")
+  #     os.makedirs(temp_dir, exist_ok=True)
+  #     download_path = os.path.join(temp_dir, asset_name)
+
+  #     dl_thread = AssetDownloadThread(
+  #       asset["browser_download_url"], download_path
+  #     )
+
+  #     def on_download_finished(path):
+  #       try:
+  #         # 1. Extraction logic
+  #         if path.endswith(".zip"):
+  #           with zipfile.ZipFile(path, "r") as zip_ref:
+  #             zip_ref.extractall(temp_dir)
+  #         elif path.endswith(".7z"):
+  #           with py7zr.SevenZipFile(path, mode="r") as archive:
+  #             archive.extractall(path=temp_dir)
+
+  #         # 2. Locate and move the file
+  #         target_file = os.path.abspath(sys.modules[self.gameName].__file__)
+  #         found = False
+  #         for root, _, files in os.walk(temp_dir):
+  #           if f"{self.gameName}.py" in files:
+  #             new_file_source = os.path.join(root, f"{self.gameName}.py")
+  #             shutil.move(new_file_source, target_file)
+  #             found = True
+  #             break
+
+  #         if found:
+  #           # 3. Create the Restart Prompt
+  #           msg = QMessageBox(self)
+  #           msg.setWindowTitle("Update Complete")
+  #           msg.setText(f"Successfully updated {self.gameName}.")
+  #           msg.setInformativeText(
+  #             "Would you like to restart the launcher now to apply changes?"
+  #           )
+  #           msg.setStandardButtons(
+  #             QMessageBox.StandardButton.Yes
+  #             | QMessageBox.StandardButton.No
+  #           )
+  #           msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+  #           if msg.exec() == QMessageBox.StandardButton.Yes:
+  #             # 4. Restart Logic
+  #             python = sys.executable
+  #             print(python, *sys.orig_argv)
+  #             os.execl(python, *sys.orig_argv)
+  #         else:
+  #           print(
+  #             f"Update downloaded but {self.gameName}.py was not found."
+  #           )
+
+  #       except Exception as e:
+  #         print(f"Update failed: {e}")
+  #       finally:
+  #         shutil.rmtree(temp_dir, ignore_errors=True)
+
+  #     dl_thread.finished.connect(on_download_finished)
+  #     dl_thread.start()
+  #     # Keep reference to prevent GC
+  #     self.activeDownloads["launcher_update"] = dl_thread
+
+  #   fetcher.finished.connect(on_metadata_fetched)
+  #   fetcher.start()
+  #   # Keep reference to prevent GC
+  #   self.activeDownloads["launcher_metadata"] = fetcher
+  def updateSubLauncher(
+    self,
+    launcherSettings: Optional[Config] = None,
+    data: Optional[ItemListData] = None,
+  ):
+    """Refactored unified update logic for the launcher or sub-modules."""
+    # Fallback to current config if none provided
+    ls = launcherSettings or self.config
+
+    # If no data object provided (e.g. from Settings button),
+    # create a mock one or find the one matching the current game
+    # if data is None:
+    #   # Assuming current running file is the target
+    #   assert sys.modules[self.gameName].__file__ is not None
+    #   current_path = os.path.abspath(sys.modules[self.gameName].__file__)
+    #   data = ItemListData(version=self.gameName, path=current_path, release=None)
+
+    tag = data.version
+    api_url = f"https://api.github.com/repos/{ls.LAUNCHER_GH_USERNAME or ls.GH_USERNAME}/{ls.LAUNCHER_GH_REPO or ls.GH_REPO}/releases"
+
     fetcher = self.ReleaseFetchThread(
       api_url, pat=self.settings.githubPat or None, max_pages=1
     )
 
-    def on_metadata_fetched(releases):
+    def on_metadata(releases):
       if not releases:
-        print("No releases found to update from.")
         return
+      data.release = releases[0]
 
-      release = releases[0]
+      asset_name = ls.LAUNCHER_ASSET_NAME
       asset = next(
-        (a for a in release.get("assets", []) if a["name"] == asset_name), None
+        (a for a in data.release.get("assets", []) if a["name"] == asset_name),
+        None,
       )
 
-      if not asset:
-        print(f"Could not find asset {asset_name} in the latest release.")
+      if not asset or tag in self.downloadingVersions:
         return
 
-      # 3. Setup download paths
-      temp_dir = os.path.join(LAUNCHER_START_PATH, "temp_update")
-      os.makedirs(temp_dir, exist_ok=True)
-      download_path = os.path.join(temp_dir, asset_name)
-
-      dl_thread = AssetDownloadThread(
-        asset["browser_download_url"], download_path
+      self.downloadingVersions.append(tag)
+      dest_dir = os.path.join(
+        os.path.abspath(os.path.join(LAUNCHER_START_PATH, "-")), f"temp_{tag}"
       )
+      out_file = os.path.join(dest_dir, asset["name"])
+      os.makedirs(dest_dir, exist_ok=True)
 
-      def on_download_finished(path):
+      # Update UI if widget exists
+      widget = self.activeItemRefs.get(tag)
+      if widget:
+        widget.setModeUnknownEnd()
+
+      dl_thread = AssetDownloadThread(asset["browser_download_url"], out_file)
+      self.activeDownloads[tag] = dl_thread
+
+      def on_finished(path):
+        extracted = False
         try:
-          # 1. Extraction logic
           if path.endswith(".zip"):
-            with zipfile.ZipFile(path, "r") as zip_ref:
-              zip_ref.extractall(temp_dir)
+            with zipfile.ZipFile(path, "r") as z:
+              z.extractall(dest_dir)
+            extracted = True
           elif path.endswith(".7z"):
-            with py7zr.SevenZipFile(path, mode="r") as archive:
-              archive.extractall(path=temp_dir)
+            with py7zr.SevenZipFile(path, "r") as z:
+              z.extractall(dest_dir)
+            extracted = True
 
-          # 2. Locate and move the file
-          target_file = os.path.abspath(sys.modules[self.gameName].__file__)
-          found = False
-          for root, _, files in os.walk(temp_dir):
-            if f"{self.gameName}.py" in files:
-              new_file_source = os.path.join(root, f"{self.gameName}.py")
-              shutil.move(new_file_source, target_file)
-              found = True
-              break
-
-          if found:
-            # 3. Create the Restart Prompt
-            msg = QMessageBox(self)
-            msg.setWindowTitle("Update Complete")
-            msg.setText(f"Successfully updated {self.gameName}.")
-            msg.setInformativeText(
-              "Would you like to restart the launcher now to apply changes?"
-            )
-            msg.setStandardButtons(
-              QMessageBox.StandardButton.Yes
-              | QMessageBox.StandardButton.No
-            )
-            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-            if msg.exec() == QMessageBox.StandardButton.Yes:
-              # 4. Restart Logic
-              python = sys.executable
-              print(python, *sys.orig_argv)
-              os.execl(python, *sys.orig_argv)
-          else:
-            print(
-              f"Update downloaded but {self.gameName}.py was not found."
-            )
-
+          if extracted:
+            # Replacement logic
+            for root, _, files in os.walk(dest_dir):
+              if f"{tag}.py" in files:
+                if data.path and os.path.exists(data.path):
+                  os.remove(data.path)
+                  shutil.move(
+                    os.path.join(root, f"{tag}.py"), data.path
+                  )
+                  QTimer.singleShot(100, bind(self.showRestartPrompt, tag))  # New helper below
+                break
         except Exception as e:
-          print(f"Update failed: {e}")
+          print(f"Update failed for {tag}: {e}")
         finally:
-          shutil.rmtree(temp_dir, ignore_errors=True)
+          if tag in self.downloadingVersions:
+            self.downloadingVersions.remove(tag)
+          self.activeDownloads.pop(tag, None)
+          shutil.rmtree(dest_dir, ignore_errors=True)
+          self.updateVersionList()
 
-      dl_thread.finished.connect(on_download_finished)
+      dl_thread.finished.connect(on_finished)
       dl_thread.start()
-      # Keep reference to prevent GC
-      self.activeDownloads["launcher_update"] = dl_thread
 
-    fetcher.finished.connect(on_metadata_fetched)
+    fetcher.finished.connect(on_metadata)
+    self.activeDownloads[f"meta_{tag}"] = fetcher
     fetcher.start()
-    # Keep reference to prevent GC
-    self.activeDownloads["launcher_metadata"] = fetcher
+
+  def showRestartPrompt(self, name):
+    from PySide6.QtWidgets import QMessageBox
+
+    msg = QMessageBox(self)
+    msg.setText(f"{name} updated successfully.")
+    msg.setInformativeText("Restart now to apply changes?")
+    msg.setStandardButtons(
+      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+    )
+    if msg.exec() == QMessageBox.StandardButton.Yes:
+      python = sys.executable
+      os.execl(python, python, *sys.argv)
 
   def openFile(self, p):
     return QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(p)))
@@ -1936,6 +1934,7 @@ def run(config: Config, module_name):
 
 
 modules = {}
+paths = {}
 _is_selector_loading = False
 
 
@@ -1958,7 +1957,9 @@ def loadConfig(config: Config):
     # Register the config into the MAIN list
     if _is_selector_loading:
       modules[module_name] = config
+      paths[module_name] = os.path.abspath(caller_filename)
     else:
+      main_app.paths[module_name] = os.path.abspath(caller_filename)
       main_app.modules[module_name] = config
   else:
     # We are NOT in the selector (User ran "python mygame.py" directly)
@@ -1986,6 +1987,7 @@ def findAllLaunchables():
           run(modules[module_name], module_name)
           return
       except Exception as e:
+        paths[module_name] = os.path.abspath(filename)
         modules[module_name] = Config(
           WINDOW_TITLE=module_name,
           GH_USERNAME="",
