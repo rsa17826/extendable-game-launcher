@@ -1546,7 +1546,7 @@ class Launcher(QWidget):
     groupLayout.addWidget(
       self.newButton(
         "Update " + self.GAME_ID + " Launcher",
-        self.updateSubLauncher,
+        bind(self.updateSubLauncher, widget=self.mainProgressBar),
       )
     )
     groupLayout.addLayout(
@@ -1717,6 +1717,7 @@ class Launcher(QWidget):
     self,
     launcherSettings: Optional[Config] = None,
     data: Optional[ItemListData] = None,
+    widget: Optional[VersionItemWidget] = None,
   ):
     """Refactored unified update logic for the launcher or sub-modules."""
     # Fallback to current config if none provided
@@ -1740,12 +1741,20 @@ class Launcher(QWidget):
     fetcher = self.ReleaseFetchThread(
       api_url, pat=self.settings.githubPat or None, max_pages=1
     )
+    if not widget:
+      widget = self.activeItemRefs.get(tag)
+    assert isinstance(widget, VersionItemWidget)
+    widget.setModeUnknownEnd()
 
-    def on_metadata(releases):
+    def on_metadata(widget: VersionItemWidget, releases):
       if not releases:
         return
       data.release = releases[0]
       assert data.release is not None
+      widget.setModeKnownEnd()
+
+      def on_progress(progress):
+        widget.setProgress(progress)
 
       asset_name = ls.LAUNCHER_ASSET_NAME
       asset = next(
@@ -1754,6 +1763,7 @@ class Launcher(QWidget):
       )
 
       if not asset or tag in self.downloadingVersions:
+        self.activeDownloads.pop(f"meta_{tag}", None)
         return
 
       self.downloadingVersions.append(tag)
@@ -1763,15 +1773,12 @@ class Launcher(QWidget):
       out_file = os.path.join(dest_dir, asset["name"])
       os.makedirs(dest_dir, exist_ok=True)
 
-      # Update UI if widget exists
-      widget: VersionItemWidget | None = self.activeItemRefs.get(tag)
-      if isinstance(widget, VersionItemWidget):
-        widget.setModeKnownEnd()
-
       dl_thread = AssetDownloadThread(asset["browser_download_url"], out_file)
       self.activeDownloads[tag] = dl_thread
 
       def on_finished(path):
+        widget.setModeDisabled()
+        found = False
         extracted = False
         try:
           if path.endswith(".zip"):
@@ -1790,11 +1797,9 @@ class Launcher(QWidget):
                 if data.path and os.path.exists(data.path):
                   os.remove(data.path)
                   shutil.move(
-                    os.path.join(root, f"{tag}.py"), data.path
+                      os.path.join(root, f"{tag}.py"), data.path
                   )
-                  QTimer.singleShot(
-                    1000, bind(self.showRestartPrompt, tag)
-                  )
+                  found = True
                 break
         except Exception as e:
           print(f"Update failed for {tag}: {e}")
@@ -1805,12 +1810,15 @@ class Launcher(QWidget):
           self.activeDownloads.pop(f"meta_{tag}", None)
           shutil.rmtree(dest_dir, ignore_errors=True)
           self.updateVersionList()
+          if found:
+            self.showRestartPrompt(tag)
 
+      dl_thread.progress.connect(on_progress)
       dl_thread.finished.connect(on_finished)
       dl_thread.finished.connect(dl_thread.deleteLater)
       dl_thread.start()
 
-    fetcher.finished.connect(on_metadata)
+    fetcher.finished.connect(bind(on_metadata, widget))
     fetcher.finished.connect(fetcher.deleteLater)
     self.activeDownloads[f"meta_{tag}"] = fetcher
     fetcher.start()
