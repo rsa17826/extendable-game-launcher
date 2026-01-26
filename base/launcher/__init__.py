@@ -1848,6 +1848,7 @@ def run(config: Config, module_name):
   _current_window = Launcher(config, module_name)
 
   # Apply the saved geometry before showing the window
+  print(_last_geometry, "_last_geometry")
   if _last_geometry is not None:
     _current_window.restoreGeometry(_last_geometry)
 
@@ -1855,7 +1856,9 @@ def run(config: Config, module_name):
 
   if is_new_app:  # Only exec if loop isn't running
     if LAUNCHER_TO_LAUNCH in modules:
+      lwin=_current_window
       run(modules[LAUNCHER_TO_LAUNCH], LAUNCHER_TO_LAUNCH)
+      lwin.close()
     sys.exit(app.exec())
 
 
