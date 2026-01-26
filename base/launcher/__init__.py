@@ -886,6 +886,7 @@ class Launcher(QWidget):
 
   def processDownloadQueue(self):
     assert isinstance(self.settings.maxConcurrentDls, int)
+    self.downloadQueue = []
     while self.downloadQueue and (
       len(self.activeDownloads) < self.settings.maxConcurrentDls
       or self.settings.maxConcurrentDls == 0
@@ -1168,8 +1169,7 @@ class Launcher(QWidget):
         if version not in self.downloadingVersions:
           items.append(item.data(Qt.ItemDataRole.UserRole))
           onlineCount += 1
-      if len(items):
-        self.startQueuedDownloadRequest(*items)
+    self.startQueuedDownloadRequest(*items)
 
     if onlineCount > 0:
       print(f"Added {onlineCount} Versions to the Download Queue.")
