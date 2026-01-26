@@ -1829,8 +1829,6 @@ class Launcher(QWidget):
     fetcher.start()
 
   def showRestartPrompt(self, text):
-    from PySide6.QtWidgets import QMessageBox
-
     def restart():
       script_path = f'"{os.path.abspath(sys.argv[0])}"'
       executable = f'"{sys.executable}"'
