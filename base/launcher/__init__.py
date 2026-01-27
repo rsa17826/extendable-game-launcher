@@ -1174,10 +1174,10 @@ class Launcher(QWidget):
       )
 
   def sortVersions(self, versions_data):
-    last_ran = None
+    versionThatWasLastRan = None
     if self.GAME_ID != "-":
       try:
-        last_ran = f.read(
+        versionThatWasLastRan = f.read(
           os.path.join(
             LAUNCHER_START_PATH if True else "",
             self.GAME_ID,
@@ -1191,19 +1191,19 @@ class Launcher(QWidget):
       version = item.version
       status = item.status
 
-      is_localOnly = 1 if status == Statuses.localOnly else 0
-      is_local = 1 if status == Statuses.local else 0
+      isLocalOnly = 1 if status == Statuses.localOnly else 0
+      isNotDownloaded = 1 if status == Statuses.online else 0
 
-      is_last_ran = 1 if version == last_ran and is_local else 0
+      isLastRanVersion = 1 if version == versionThatWasLastRan and not isNotDownloaded else 0
 
       version_is_numeric = 1 if re.match(r"^\d+$", version) else 0
       numeric_value = int(version) if version_is_numeric else 0
 
       return (
-        is_last_ran,
+        isLastRanVersion,
         (1 if (version in self.downloadingVersions) else 0),
-        is_localOnly,
-        is_local,
+        isLocalOnly,
+        isNotDownloaded,
         version_is_numeric,
         numeric_value if version_is_numeric else version,
       )
