@@ -1192,9 +1192,14 @@ class Launcher(QWidget):
       status = item.status
 
       isLocalOnly = 1 if status == Statuses.localOnly else 0
-      isNotDownloaded = 1 if status == Statuses.online else 0
+      # isNotDownloaded = 1 if status == Statuses.online else 0
 
-      isLastRanVersion = 1 if version == versionThatWasLastRan and not isNotDownloaded else 0
+      isLastRanVersion = (
+        1
+        if version == versionThatWasLastRan
+        and (status == Statuses.local or status == Statuses.localOnly)
+        else 0
+      )
 
       version_is_numeric = 1 if re.match(r"^-?\d+$", version) else 0
       numeric_value = int(version) if version_is_numeric else 0
@@ -1203,7 +1208,7 @@ class Launcher(QWidget):
         isLastRanVersion,
         (1 if (version in self.downloadingVersions) else 0),
         isLocalOnly,
-        isNotDownloaded if self.settings.sortByDownloadState else 0,
+        # isNotDownloaded if self.settings.sortByDownloadState else 0,
         version_is_numeric,
         numeric_value if version_is_numeric else version,
       )
@@ -1473,7 +1478,7 @@ class Launcher(QWidget):
       if data.path:
         newAction("Open Folder", lambda: self.openFile(data.path)) # type: ignore
         newAction(
-          f"Delete Version {data.version}", lambda: shutil.rmtree(data.path) # type: ignore
+          f"Delete Version {data.version}", lambda: (shutil.rmtree(data.path), self.updateVersionList()) # type: ignore
         )
       if data.release:
         newAction(
@@ -1635,7 +1640,7 @@ class Launcher(QWidget):
     )
     groupLayout.addWidget(
       self.newCheckbox(
-        "Close Launcher on Game Start (May Cause some Games to Not Start)",
+        "Close Launcher on Game Start (Could Cause some Games to Not Start)",
         False,
         "closeOnLaunch",
       )
@@ -2109,6 +2114,3 @@ if __name__ == "__main__":
 #             if True
 #             else ""
 # self.settings.centralGameDataLocations
-
-# TODO
-# make ui reload when deleting things
