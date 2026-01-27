@@ -282,8 +282,8 @@ Args:
 """
   WINDOW_TITLE: str = "No Window Title Has Been Set"
   """what to set the launchers title to"""
-  USE_HARD_LINKS: bool = False
-  """if true will scan all new version downloads and check to see if any files are the same between different versions and replace the new files with hardlinks instead"""
+  SHOULD_USE_HARD_LINKS: bool = False
+  """will set default state of setting replaceDuplicateGameFilesWithHardlinks which if true will scan all new version downloads and check to see if any files are the same between different versions and replace the new files with hardlinks instead"""
   CAN_USE_CENTRAL_GAME_DATA_FOLDER: bool = False
   """if true will make all game versions appear to be launched from a single dir else will just launch each one from a separate location"""
   configs: Dict[Any, Any] | None = None
@@ -777,7 +777,7 @@ class Launcher(QWidget):
 
   def deduplicateWithHardlinks(self, new_version_dir):
     if not (
-      self.config.USE_HARD_LINKS
+      self.config.SHOULD_USE_HARD_LINKS
       and self.settings.replaceDuplicateGameFilesWithHardlinks
     ):
       return
@@ -953,7 +953,7 @@ class Launcher(QWidget):
           os.remove(path)
           extracted = True
 
-        if extracted and self.config.USE_HARD_LINKS:
+        if extracted and self.config.SHOULD_USE_HARD_LINKS:
           self.deduplicateWithHardlinks(dest_dir)
       except Exception as e:
         print(f"Extraction Error For {tag}: {e}")
@@ -1661,14 +1661,13 @@ class Launcher(QWidget):
         False,
       )
     )
-    if self.config.USE_HARD_LINKS:
-      groupLayout.addWidget(
-        self.newCheckbox(
-          "Replace Duplicate Game Files with Hardlinks",
-          True,
-          "replaceDuplicateGameFilesWithHardlinks",
-        ),
-      )
+    groupLayout.addWidget(
+      self.newCheckbox(
+        "Replace Duplicate Game Files with Hardlinks",
+        self.config.SHOULD_USE_HARD_LINKS,
+        "replaceDuplicateGameFilesWithHardlinks",
+      ),
+    )
     if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
       groupLayout.addWidget(
         self.newCheckbox(
