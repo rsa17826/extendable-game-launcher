@@ -1,10 +1,10 @@
 # @name a
-# @regex (?<=[^ ])  #
+# @regex (?<=[^\s])  #
 # @replace  #
 # @endregex
 import shutil
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Callable, Dict, List, Any, Tuple, Optional
 from functools import partial as bind
 from itertools import islice
@@ -74,8 +74,8 @@ def checkArgs(*argData: ArgumentData) -> list[Any]:
     beforeDashArgs = args[: args.index("--")]
   else:
     beforeDashArgs = args
- # print(beforeDashArgs, args)
- # Initialize results with the default values from argData
+  # print(beforeDashArgs, args)
+  # Initialize results with the default values from argData
   results: List[Any | None] = [data.default for data in argData]
 
   i = 0
@@ -162,7 +162,7 @@ def checkArgs(*argData: ArgumentData) -> list[Any]:
     # Skip over the processed argument
     continue
 
- # print(results)
+  # print(results)
   return results
 
 
@@ -215,6 +215,21 @@ class ItemListData:
 
 @dataclass
 class Config:
+  def __post_init__(self):
+    # List of valid field names (essential for validation)
+    valid_field_names = {f.name for f in fields(self)}
+
+    # Check if the essential fields are set, otherwise raise a warning
+    if not self.GH_USERNAME:
+      print("GH_USERNAME is missing, cannot proceed with the update.")
+    if not self.GH_REPO:
+      print("GH_REPO is missing, cannot proceed with the update.")
+
+    # Warn on any unrecognized fields that weren't part of the dataclass definition
+    for key in self.__dict__:
+      if key not in valid_field_names:
+        print(f"Unknown field '{key}' in config, this will be ignored.")
+
   supportedOs: Type[Enum]
   GH_USERNAME: str
   """github username eg rsa17826"""
@@ -1654,7 +1669,9 @@ class Launcher(QWidget):
     outerLayout.addWidget(groupBox)
     # endregion
     # region local
-    groupBox = QGroupBox(f"Local Settings ({self.gameName or "Default Settings For New Launchers"})")
+    groupBox = QGroupBox(
+      f"Local Settings ({self.gameName or "Default Settings For New Launchers"})"
+    )
     groupLayout = QVBoxLayout()
     self.localKeys = [
       "extraGameArgs",
@@ -1989,14 +2006,14 @@ def run(config: Config, module_name):
     app = QApplication(sys.argv)
     is_new_app = True
 
- # Save the old geometry if a window is currently open
+  # Save the old geometry if a window is currently open
   _last_geometry = None
   if _current_window is not None:
     _last_geometry = _current_window.saveGeometry()
 
   _current_window = Launcher(config, module_name)
 
- # Apply the saved geometry before showing the window
+  # Apply the saved geometry before showing the window
   if _last_geometry is not None:
     _current_window.restoreGeometry(_last_geometry)
 
@@ -2016,15 +2033,15 @@ _is_selector_loading = False
 
 
 def loadConfig(config: Config):
- # 1. Get the actual main module (the one running the loop)
+  # 1. Get the actual main module (the one running the loop)
   main_app = sys.modules["__main__"]
 
   caller_frame = inspect.stack()[1]
   caller_filename = caller_frame.filename
   module_name = Path(caller_filename).stem
- # 2. Check if the main app has the 'modules' list (meaning we are in the Selector)
- # _is_selector_loading is for if ran like `launcher`
- # hasattr(main_app, "modules") and isinstance(main_app.modules, dict) is for if ran like `python ./__init__.py`
+  # 2. Check if the main app has the 'modules' list (meaning we are in the Selector)
+  # _is_selector_loading is for if ran like `launcher`
+  # hasattr(main_app, "modules") and isinstance(main_app.modules, dict) is for if ran like `python ./__init__.py`
   if _is_selector_loading or (
     hasattr(main_app, "modules") and isinstance(main_app.modules, dict)
   ):
@@ -2034,6 +2051,9 @@ def loadConfig(config: Config):
     # Register the config into the MAIN list
     if _is_selector_loading:
       modules[module_name] = config
+      if importHavingError:
+        config.errorText = importHavingError
+        config.hadErrorLoading = True
       paths[module_name] = os.path.abspath(caller_filename)
     else:
       main_app.paths[module_name] = os.path.abspath(caller_filename)
@@ -2043,9 +2063,16 @@ def loadConfig(config: Config):
     run(config, module_name)
 
 
+importHavingError: str | None = None
+
+
 def findAllLaunchables():
   global selectorConfig, _is_selector_loading
   import importlib
+
+  # 1. Force 'import launcher' to use THIS running module instance
+  # This ensures the sub-module sees the modified Config below
+  sys.modules["launcher"] = sys.modules[__name__]
 
   class supportedOs(Enum):
     windows = 0
@@ -2062,14 +2089,17 @@ def findAllLaunchables():
         importlib.import_module(module_name)
       except Exception as e:
         paths[module_name] = os.path.abspath(filename)
-        modules[module_name] = Config(
-          WINDOW_TITLE=module_name,
-          GH_USERNAME="",
-          GH_REPO="",
-          supportedOs=supportedOs,
-          hadErrorLoading=True,
-          errorText=f"{e}",
-        )
+        global Config, importHavingError
+        importHavingError = f"{e}"
+        temp = Config
+        def a(**kwargs):
+          sd = SettingsData()
+          for k, v in kwargs.items():
+            setattr(sd, k, v)
+          return sd
+        Config = a # type: ignore
+        importlib.import_module(module_name)
+        Config = temp
         print("error loading launcher", module_name, e)
 
   selectorConfig = Config(
