@@ -711,9 +711,9 @@ class Launcher(QWidget):
         global_data[key] = value
 
     try:
-      if self.GAME_ID != "-":
-        with open(self.LOCAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
-          json.dump(local_data, f, indent=2)
+      # if self.GAME_ID != "-":
+      with open(self.LOCAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(local_data, f, indent=2)
       with open(self.GLOBAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(global_data, f, indent=2)
     except Exception as e:
@@ -724,9 +724,18 @@ class Launcher(QWidget):
     global_data = {}
 
     try:
-      if self.GAME_ID != "-" and os.path.exists(self.LOCAL_SETTINGS_FILE):
-        with open(self.LOCAL_SETTINGS_FILE, "r", encoding="utf-8") as f:
+      defaultLocalSettingsFile = os.path.join(
+        LAUNCHER_START_PATH if True else "",
+        "-",
+        "launcherData/launcherSettings.json",
+      )
+      if os.path.exists(defaultLocalSettingsFile):
+        with open(defaultLocalSettingsFile, "r", encoding="utf-8") as f:
           local_data = json.load(f)
+      if os.path.exists(self.LOCAL_SETTINGS_FILE):
+        with open(self.LOCAL_SETTINGS_FILE, "r", encoding="utf-8") as f:
+          for k, v in json.load(f).items():
+            local_data[k] = v
       if os.path.exists(self.GLOBAL_SETTINGS_FILE):
         with open(self.GLOBAL_SETTINGS_FILE, "r", encoding="utf-8") as f:
           global_data = json.load(f)
@@ -843,7 +852,7 @@ class Launcher(QWidget):
       case Statuses.online:
         self.startQueuedDownloadRequest(data)
 
-  def startGameVersion(self, data:ItemListData):
+  def startGameVersion(self, data: ItemListData):
     args: List[str] = (
       sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     )
@@ -970,7 +979,11 @@ class Launcher(QWidget):
         self.activeDownloads.pop(tag, None)
       self.config.onGameVersionDownloadComplete(path, tag)
       if VERSION and VERSION == tag:
-        self.startGameVersion(ItemListData(path=dest_dir, status=Statuses.local, version=tag, release={}))
+        self.startGameVersion(
+          ItemListData(
+            path=dest_dir, status=Statuses.local, version=tag, release={}
+          )
+        )
 
     dl_thread.progress.connect(bind(self.handleDownloadProgress, tag))
     dl_thread.finished.connect(onFinished)
@@ -1290,7 +1303,6 @@ class Launcher(QWidget):
     self.setWindowTitle(config.WINDOW_TITLE)
     self.setFixedSize(420, 600)
     self.setStyleSheet(f.read(os.path.join(LAUNCHER_START_PATH, "main.css")))
-    self.localKeys = ["extraGameArgs"]
     self.GAME_ID = re.sub(
       r"_{2,}",
       "_",
@@ -1413,7 +1425,10 @@ class Launcher(QWidget):
           if data.status == Statuses.online:
             if data.version not in self.downloadingVersions:
               self.startQueuedDownloadRequest(data)
-          if data.status == Statuses.local or data.status == Statuses.localOnly:
+          if (
+            data.status == Statuses.local
+            or data.status == Statuses.localOnly
+          ):
             self.startGameVersion(data)
 
   def openSettings(self):
@@ -1639,8 +1654,13 @@ class Launcher(QWidget):
     outerLayout.addWidget(groupBox)
     # endregion
     # region local
-    groupBox = QGroupBox(f"Local Settings ({self.config.GH_REPO})")
+    groupBox = QGroupBox(f"Local Settings ({self.gameName or "Default Settings For New Launchers"})")
     groupLayout = QVBoxLayout()
+    self.localKeys = [
+      "extraGameArgs",
+      "replaceDuplicateGameFilesWithHardlinks",
+      "useCentralGameDataFolder",
+    ]
     if self.gameName:
       groupLayout.addWidget(
         self.newButton(
