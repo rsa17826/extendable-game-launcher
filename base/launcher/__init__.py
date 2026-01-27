@@ -856,14 +856,8 @@ class Launcher(QWidget):
     args: List[str] = (
       sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     )
-    usesCentralGameDataLocation = (
-      self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
-      and self.settings.useCentralGameDataFolder
-    )
-    gdl = self.gameDataLocation
-    if not usesCentralGameDataLocation:
-      gdl = os.path.join(gdl, str(data.version))
-    os.makedirs(gdl, exist_ok=True)
+
+    gdl = self.getGameDataLocation(data.version)
     f.write(
       os.path.join(
         (LAUNCHER_START_PATH if True else ""),
@@ -881,6 +875,21 @@ class Launcher(QWidget):
     )
     if self.settings.closeOnLaunch:
       QApplication.quit()
+
+  def getGameDataLocation(self, version=None):
+    usesCentralGameDataLocation = (
+      self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
+      and self.settings.useCentralGameDataFolder
+    )
+    gdl: str = os.path.join(
+      (LAUNCHER_START_PATH if True else ""),
+      self.GAME_ID,
+      "gameData",
+    )
+    if not usesCentralGameDataLocation and version:
+      gdl = os.path.join(gdl, str(version))
+    os.makedirs(gdl, exist_ok=True)
+    return gdl
 
   def startQueuedDownloadRequest(self, *versions: ItemListData):
     for data in versions:
@@ -1379,17 +1388,6 @@ class Launcher(QWidget):
       ),
       exist_ok=True,
     )
-    self.gameDataLocation = os.path.join(
-      (LAUNCHER_START_PATH if True else ""),
-      self.GAME_ID,
-      "gameData",
-    )
-    if config.CAN_USE_CENTRAL_GAME_DATA_FOLDER:
-      os.makedirs(
-        self.gameDataLocation,
-        exist_ok=True,
-      )
-
     self.foundReleases = json.loads(
       f.read(
         os.path.join(
@@ -1713,11 +1711,7 @@ class Launcher(QWidget):
     groupLayout.addWidget(
       self.newButton(
         "Open Game Data Folder",
-        lambda: self.openFile(
-          os.path.join(self.GAME_ID, "gameData")
-          if self.config.CAN_USE_CENTRAL_GAME_DATA_FOLDER
-          else self.GAME_ID
-        ),
+        lambda: self.openFile(self.getGameDataLocation()),
       )
     )
     if self.config.addCustomNodes:
@@ -2077,11 +2071,13 @@ def findAllLaunchables():
         global Config, importHavingError
         importHavingError = f"{e}"
         temp = Config
+
         def a(**kwargs):
           sd = SettingsData()
           for k, v in kwargs.items():
             setattr(sd, k, v)
           return sd
+
         Config = a # type: ignore
         importlib.import_module(module_name)
         Config = temp
