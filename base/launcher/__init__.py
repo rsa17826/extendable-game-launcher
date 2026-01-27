@@ -215,21 +215,6 @@ class ItemListData:
 
 @dataclass
 class Config:
-  def __post_init__(self):
-    # List of valid field names (essential for validation)
-    valid_field_names = {f.name for f in fields(self)}
-
-    # Check if the essential fields are set, otherwise raise a warning
-    if not self.GH_USERNAME:
-      print("GH_USERNAME is missing, cannot proceed with the update.")
-    if not self.GH_REPO:
-      print("GH_REPO is missing, cannot proceed with the update.")
-
-    # Warn on any unrecognized fields that weren't part of the dataclass definition
-    for key in self.__dict__:
-      if key not in valid_field_names:
-        print(f"Unknown field '{key}' in config, this will be ignored.")
-
   supportedOs: Type[Enum]
   GH_USERNAME: str
   """github username eg rsa17826"""
