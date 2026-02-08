@@ -1,60 +1,61 @@
-# { pkgs ? import <nixpkgs> {} }:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 
-# pkgs.mkShell {
-#   buildInputs = with pkgs; [
-#     python3
-#     python3Packages.pyside6
-#     python3Packages.requests
-#     python3Packages.py7zr
-    
-#     # System dependencies for Qt6
-#     qt6.qtbase
-#     qt6.qtwayland
-#     libGL
-#     xorg.libX11
-#     xorg.libXcursor
-#     xorg.libXcomposite
-#     xorg.libXdamage
-#     xorg.libXext
-#     xorg.libXfixes
-#     xorg.libXi
-#     xorg.libXrender
-#     xorg.libXtst
-#     libxkbcommon
-#     fontconfig
-#     freetype
-#   ];
-# }
-{ pkgs ? import <nixpkgs> {} }:
+let
+  pythonEnv = pkgs.python313.withPackages (
+    ps: with ps; [
+      pip
+      setuptools
+      wheel
+    ]
+  );
 
+  # System libraries required by PySide6 and its dependencies
+  libraries = with pkgs; [
+    stdenv.cc.cc.lib
+    zstd # Added to fix: libzstd.so.1: cannot open shared object file
+    libGL
+    glib
+    xorg.libX11
+    xorg.libXext
+    xorg.libXrender
+    xorg.libXrandr
+    xorg.libXcursor
+    xorg.libXi
+    fontconfig
+    freetype
+    dbus
+    libxkbcommon
+    wayland
+  ];
+in
 pkgs.mkShell {
   buildInputs = [
-    pkgs.python313
-    pkgs.python313Packages.virtualenv
-    pkgs.python313Packages.pip
-    pkgs.python313Packages.setuptools
-    pkgs.python313Packages.wheel
-  ];
+    pythonEnv
+  ]
+  ++ libraries;
 
   shellHook = ''
-    #!/bin/bash
-
-    # Check if the virtual environment directory exists
-    if [ -d "./.venv" ]; then
-      # Activate the virtual environment
-      source ./.venv/bin/activate
-    else
-      # Create a virtual environment using Python 3.13 (ensure python3.13 is installed)
-      python3.13 -m venv .venv
-      # Activate the virtual environment
-      source ./.venv/bin/activate
-      # Install the base package in editable mode and requirements
+    # Create/Activate Virtual Environment
+    if [ ! -d ".venv" ]; then
+      echo "Creating virtual environment..."
+      python -m venv .venv
       pip install -e ./base
       pip install -r ./base/requirements.txt
-      # Remove egg-info directory
       rm -rf ./base/launcher.egg-info
-      # Run the Python script with any passed arguments
     fi
-    python ./base/launcher/__init__.py "$@"
+    source .venv/bin/activate
+
+    # Fix Library Paths for Pip Binaries
+    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH"
+
+    # Fix Qt Plugin Paths
+    export QT_QPA_PLATFORM_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
+
+    # Force X11 for better compatibility in Nix shells
+    export QT_QPA_PLATFORM="xcb" 
+
+    python ./base/launcher/__init__.py
   '';
 }
