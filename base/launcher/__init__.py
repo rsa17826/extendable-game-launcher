@@ -175,24 +175,32 @@ def checkArgs(*argData: ArgumentData, useArgs: list[str] | None = None) -> list[
 selectorConfig = None
 
 LAUNCHER_START_PATH = os.path.abspath(os.path.dirname(__file__))
+
+
 # asdadsas
-(
-  OFFLINE,
-  LAUNCHER_TO_LAUNCH,
-  TRY_UPDATE,
-  HEADLESS,
-  VERSION,
-  REGISTER_PROTOCOLS,
-  DOWNLOAD_LAUNCHER,
-) = checkArgs(
-  ArgumentData(key="offline", afterCount=0),
-  ArgumentData(key=["launcherName", "startLauncher"], afterCount=1),
-  ArgumentData(key="tryupdate", afterCount=0),
-  ArgumentData(key=["silent", "headless"], afterCount=0),
-  ArgumentData(key="version", afterCount=1),
-  ArgumentData(key="registerProtocols", afterCount=0),
-  ArgumentData(key="downloadLauncher", afterCount=4),
-)
+def updateArgs(useArgs=None):
+  global OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION, REGISTER_PROTOCOLS, DOWNLOAD_LAUNCHER
+  (
+    OFFLINE,
+    LAUNCHER_TO_LAUNCH,
+    TRY_UPDATE,
+    HEADLESS,
+    VERSION,
+    REGISTER_PROTOCOLS,
+    DOWNLOAD_LAUNCHER,
+  ) = checkArgs(
+    ArgumentData(key="offline", afterCount=0),
+    ArgumentData(key=["launcherName", "startLauncher"], afterCount=1),
+    ArgumentData(key="tryupdate", afterCount=0),
+    ArgumentData(key=["silent", "headless"], afterCount=0),
+    ArgumentData(key="version", afterCount=1),
+    ArgumentData(key="registerProtocols", afterCount=0),
+    ArgumentData(key="downloadLauncher", afterCount=4),
+    useArgs=useArgs,
+  )
+
+
+updateArgs()
 
 
 from PROTO import PROTO
@@ -200,18 +208,9 @@ from PROTO import PROTO
 
 def protoCalled(msg: str): # type: ignore
   msg: list[str] = msg.split("/")
-  global OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION, DOWNLOAD_LAUNCHER
-  OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION, DOWNLOAD_LAUNCHER = (
-    checkArgs(
-      ArgumentData(key="offline", afterCount=0),
-      ArgumentData(key=["launcherName", "startLauncher"], afterCount=1),
-      ArgumentData(key="tryupdate", afterCount=0),
-      ArgumentData(key=["silent", "headless"], afterCount=0),
-      ArgumentData(key="version", afterCount=1),
-      ArgumentData(key="downloadLauncher", afterCount=4),
-      useArgs=msg,
-    )
-  )
+  updateArgs(msg)
+  global REGISTER_PROTOCOLS
+  REGISTER_PROTOCOLS = False
   # match msg[0]:
   #   case "downloadLauncher":
   #     print(msg)
@@ -219,7 +218,7 @@ def protoCalled(msg: str): # type: ignore
   #     print("failed to find valid match", msg)
 
 
-if PROTO.isSelf("multi-game-launcher") or REGISTER_PROTOCOLS:
+if PROTO.isSelf("multi-game-launcher") or REGISTER_PROTOCOLS: # type: ignore
   PROTO.add("multi-game-launcher", protoCalled, True)
 
 # print(HEADLESS)
