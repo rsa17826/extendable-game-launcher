@@ -2,6 +2,7 @@
 # @regex (?<=[^\s])  #
 # @replace  #
 # @endregex
+import itertools
 import shutil
 import inspect
 from dataclasses import dataclass, fields
@@ -70,6 +71,9 @@ class ArgumentData:
       self.key = [*map(lambda x: x.lstrip("-"), self.key)]
 
 
+LAST_USED_ARGS = []
+
+
 def checkArgs(*argData: ArgumentData, useArgs: list[str] | None = None) -> list[Any]:
   if not useArgs:
     args: List[str] = sys.argv[1:] # Ignore the script name, only check arguments
@@ -80,6 +84,8 @@ def checkArgs(*argData: ArgumentData, useArgs: list[str] | None = None) -> list[
     argsBeingUsed = beforeDashArgs
   else:
     argsBeingUsed = useArgs.copy()
+  global LAST_USED_ARGS
+  LAST_USED_ARGS = argsBeingUsed.copy()
   # print(beforeDashArgs, args)
   # Initialize results with the default values from argData
   results: List[Any | None] = [data.default for data in argData]
@@ -176,6 +182,62 @@ selectorConfig = None
 
 LAUNCHER_START_PATH = os.path.abspath(os.path.dirname(__file__))
 
+ALL_ARG_DATA = (
+  ArgumentData(key="offline", afterCount=0),
+  ArgumentData(key=["launcherName", "startLauncher"], afterCount=1),
+  ArgumentData(key="tryupdate", afterCount=0),
+  ArgumentData(key=["silent", "headless"], afterCount=0),
+  ArgumentData(key="version", afterCount=1),
+  ArgumentData(key="registerProtocols", afterCount=0),
+  ArgumentData(key="downloadLauncher", afterCount=4),
+)
+
+
+def buildArgs(*argData: ArgumentData, useArgs: list[str]) -> list[str]:
+  # This will hold the final argument list
+  result_args = []
+
+  # Start building the argument list based on useArgs
+  for i in range(0, len(useArgs)):
+    current_arg = useArgs[i]
+
+    # Find matching ArgumentData for the current argument
+    matching_data = None
+    for data in argData:
+      if isinstance(data.key, str):
+        # If the key is a string, check if it matches the current_arg
+        if data.key == current_arg:
+          matching_data = data
+          break
+      elif isinstance(data.key, list):
+        # If the key is a list, check if any key matches the current_arg
+        if current_arg in data.key:
+          matching_data = data
+          break
+
+    # If a matching ArgumentData is found, handle accordingly
+    if matching_data:
+      # Add the argument key to the result
+      result_args.append(f"--{current_arg}")
+
+      # If afterCount > 0, we need to add the corresponding values
+      afterCount = matching_data.afterCount
+      if afterCount > 0:
+        # Ensure there are enough arguments for the afterCount
+        if i + 1 + afterCount <= len(useArgs):
+          result_args.extend(useArgs[i + 1 : i + 1 + afterCount])
+          # Skip the processed arguments (key + values)
+          i += afterCount
+        else:
+          print(
+            f"Error: Not enough arguments after {current_arg}. Expected {afterCount} but got {len(useArgs) - i - 1}."
+          )
+          break
+    else:
+      print(f"Warning: Unknown argument {current_arg}, skipping.")
+
+  return result_args
+
 
 # asdadsas
 def updateArgs(useArgs=None):
@@ -189,13 +251,7 @@ def updateArgs(useArgs=None):
     REGISTER_PROTOCOLS,
     DOWNLOAD_LAUNCHER,
   ) = checkArgs(
-    ArgumentData(key="offline", afterCount=0),
-    ArgumentData(key=["launcherName", "startLauncher"], afterCount=1),
-    ArgumentData(key="tryupdate", afterCount=0),
-    ArgumentData(key=["silent", "headless"], afterCount=0),
-    ArgumentData(key="version", afterCount=1),
-    ArgumentData(key="registerProtocols", afterCount=0),
-    ArgumentData(key="downloadLauncher", afterCount=4),
+    *ALL_ARG_DATA,
     useArgs=useArgs,
   )
 
@@ -2034,7 +2090,20 @@ class Launcher(QWidget):
 
       # We pass the quoted executable as the path and arg0,
       # then the quoted script path, then the rest of the args.
-      os.execl(sys.executable, executable, script_path, *sys.argv[1:])
+      flatArgs = itertools.chain(*LAST_USED_ARGS)
+
+      args= buildArgs(
+        *[d for d in ALL_ARG_DATA if d.key != "downloadLauncher"],
+        useArgs=LAST_USED_ARGS,
+      )
+      print("NEW ARGS", args)
+      # buildArgs(LAST_USED_ARGS)
+      os.execl(
+        sys.executable,
+        executable,
+        script_path,
+        *args
+      )
 
     print(self.settings.onRestartRequired)
     match self.settings.onRestartRequired:
