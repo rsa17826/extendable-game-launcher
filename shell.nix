@@ -27,9 +27,9 @@
 # }
 { pkgs ? import <nixpkgs> {} }:
 
-pkgs.mkShell rec {
+pkgs.mkShell {
   buildInputs = [
-    pkgs.python313Full
+    pkgs.python313
     pkgs.python313Packages.virtualenv
     pkgs.python313Packages.pip
     pkgs.python313Packages.setuptools
