@@ -2,7 +2,6 @@
 # @regex (?<=[^\s])  #
 # @replace  #
 # @endregex
-import itertools
 import shutil
 import inspect
 from dataclasses import dataclass, fields
@@ -2090,7 +2089,6 @@ class Launcher(QWidget):
 
       # We pass the quoted executable as the path and arg0,
       # then the quoted script path, then the rest of the args.
-      flatArgs = itertools.chain(*LAST_USED_ARGS)
 
       args= buildArgs(
         *[d for d in ALL_ARG_DATA if d.key != "downloadLauncher"],
