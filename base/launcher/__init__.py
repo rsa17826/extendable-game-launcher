@@ -192,7 +192,7 @@ from PROTO import PROTO
 
 def protoCalled(msg: str): # type: ignore
   msg: list[str] = msg.split("/")
-  global OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION
+  global OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION, DOWNLOAD_LAUNCHER
   OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION, DOWNLOAD_LAUNCHER = checkArgs(
     ArgumentData(key="offline", afterCount=0),
     ArgumentData(key=["launcherName", "startLauncher"], afterCount=1),
