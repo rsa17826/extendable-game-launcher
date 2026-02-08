@@ -181,7 +181,7 @@ OFFLINE, LAUNCHER_TO_LAUNCH, TRY_UPDATE, HEADLESS, VERSION, REGISTER_PROTOCOLS =
     ArgumentData(key="tryupdate", afterCount=0),
     ArgumentData(key=["silent", "headless"], afterCount=0),
     ArgumentData(key="version", afterCount=1),
-    ArgumentData(key="registerProtocols", afterCount=1),
+    ArgumentData(key="registerProtocols", afterCount=0),
   )
 )
 
