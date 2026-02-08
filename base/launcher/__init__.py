@@ -2345,3 +2345,4 @@ if __name__ == "__main__":
 # self.settings.centralGameDataLocations
 
 # TODO make del on launcher selector update ui
+# TODO add settying in app to register proto
