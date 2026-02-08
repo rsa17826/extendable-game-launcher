@@ -115,8 +115,9 @@ def checkArgs(*argData: ArgumentData, useArgs: list[str] | None = None) -> list[
         ),
         None,
       )
-      assert idx is not None
-
+      if  idx is None:
+        argsBeingUsed.pop(i)
+        continue
       if afterCount == 0:
         # If afterCount is 0, consume the key (do not use its value)
         argsBeingUsed.pop(i)
@@ -271,7 +272,6 @@ def protoCalled(msg: str): # type: ignore
   #     print(msg)
   #   case _:
   #     print("failed to find valid match", msg)
-
 
 if PROTO.isSelf("multi-game-launcher") or REGISTER_PROTOCOLS: # type: ignore
   PROTO.add("multi-game-launcher", protoCalled, True)
