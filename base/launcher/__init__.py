@@ -1780,8 +1780,6 @@ class Launcher(QWidget):
     data: Optional[ItemListData] = None,
     widget: Optional[VersionItemWidget] = None,
   ):
-    """Refactored unified update logic for the launcher or sub-modules."""
-    # Fallback to current config if none provided
     ls = launcherSettings or self.config
 
     # If no data object provided (e.g. from Settings button),
